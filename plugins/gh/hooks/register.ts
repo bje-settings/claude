@@ -1,7 +1,13 @@
-// The hooks module of the gh plugin (#488, ADR 007). It pins the repo
-// status line under the prompt with `$.ui.status`, and keeps it fresh.
+// The hooks module of the gh plugin (#488, #496, ADR 007). It draws the
+// repo status row under the prompt, and keeps it fresh.
 //
-// The counts come from `hooks/hook-io.ts status <dir>`, which this module
+// The row is the first row of the prompt hint (`ui.render` on
+// `PromptHint`), so it shows under the prompt on the terminal and desktop.
+// No render site of the engine sits between the `statusLine` and the
+// permission mode line (#496). A surface that never draws the prompt hint,
+// such as VS Code or mobile, gets the plain text with `$.ui.status`.
+//
+// The counts come from `hooks/hook-io.ts status --json <dir>`, which this module
 // runs as a host command with `$.process.run`. So no count logic is here.
 // The `SessionStart` command hook in `hooks.json` keeps only the dependency
 // check (ADR 007, ruling 7).
@@ -10,13 +16,17 @@
 // ruling 6). Its decisions are in `src/status-pin.ts`, which vitest
 // measures. A helper that takes `$` is a `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 import {
   changesCounts,
   failureText,
   outcomeOf,
+  plainText,
   REFRESH_MS,
+  type Report,
   RUN_TIMEOUT_MS,
+  SEGMENT_COLOUR,
+  segmentsOf,
 } from '../src/status-pin.ts'
 
 /** What one session of this module keeps between hooks. */
@@ -34,6 +44,14 @@ interface Pin {
   /** The refresh timer. A second `session.start` in the same module
    *  replaces it, so only one timer runs. */
   timer: Timer | undefined
+  /** The last report a run gave, or `undefined` before the first one. */
+  report: Report | undefined
+  /** True after a run failed. The row then draws dim, with the last good
+   *  report, until a run gives a report again. */
+  stale: boolean
+  /** True once the surface drew the prompt hint. The row is there, so no
+   *  `$.ui.status` pin is needed. */
+  hinted: boolean
 }
 
 /**
@@ -48,14 +66,20 @@ async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void>
   }
   pin.running = true
   try {
-    const ran = await $.process.run(['node', `${$.plugin.root}/hooks/hook-io.ts`, 'status', cwd], {
-      cwd,
-      timeoutMs: RUN_TIMEOUT_MS,
-    })
+    const ran = await $.process.run(
+      ['node', `${$.plugin.root}/hooks/hook-io.ts`, 'status', '--json', cwd],
+      {
+        cwd,
+        timeoutMs: RUN_TIMEOUT_MS,
+      },
+    )
     const outcome = outcomeOf(ran)
     if (outcome.kind === 'pin') {
       pin.logged = false
-      $.ui.status(outcome.text)
+      pin.stale = false
+      pin.report = outcome.report
+      $.ui.invalidate('ui.render')
+      $.ui.status(pin.hinted ? undefined : plainText(outcome.report))
     } else {
       report($, pin, outcome.text)
     }
@@ -72,6 +96,10 @@ async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void>
 
 /** Log `text` once for each run of failures. */
 function report($: EngineInterface, pin: Pin, text: string): void {
+  if (!pin.stale) {
+    pin.stale = true
+    $.ui.invalidate('ui.render')
+  }
   if (pin.logged) return
   pin.logged = true
   $.ui.log(text)
@@ -88,7 +116,15 @@ async function refreshHere($: EngineInterface, pin: Pin): Promise<void> {
 }
 
 export const register: Register = (on) => {
-  const pin: Pin = { running: false, again: false, logged: false, timer: undefined }
+  const pin: Pin = {
+    running: false,
+    again: false,
+    logged: false,
+    timer: undefined,
+    report: undefined,
+    stale: false,
+    hinted: false,
+  }
 
   on('session.start', ($, e, next) => {
     // Not awaited: the check fetches, and the session must not wait on it.
@@ -98,6 +134,44 @@ export const register: Register = (on) => {
       void refreshHere($, pin)
     })
     return next(e)
+  })
+
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    if (!pin.hinted) {
+      // This surface draws the row, so the plain pin goes.
+      pin.hinted = true
+      $.ui.status(undefined)
+    }
+    const { report } = pin
+    const segments = report === undefined ? [] : segmentsOf(report)
+    const problems = report?.problems ?? []
+    if (segments.length === 0 && problems.length === 0) return next(e)
+    const { Box, Link, Text } = $.ui.resolve(e)
+    const dimColor = pin.stale
+    const rows = []
+    if (segments.length > 0) {
+      // One Text for each bracket, in its kind's colour. A bracket with a
+      // page is a link.
+      const brackets = segments.flatMap((segment) => {
+        const body =
+          segment.count === undefined ? segment.label : `${segment.label} ${segment.count}`
+        const text = `[${body}]`
+        const inner = segment.href === undefined ? text : h(Link, { href: segment.href }, text)
+        return [' ', h(Text, { color: SEGMENT_COLOUR[segment.kind], dimColor }, inner)]
+      })
+      rows.push(h(Text, { dimColor }, h(Text, { bold: true, dimColor }, 'gh:'), ...brackets))
+    }
+    for (const problem of problems) {
+      rows.push(
+        h(
+          Text,
+          { color: 'warning', dimColor },
+          h(Text, { bold: true, dimColor }, 'gh:'),
+          ` ⚠️ ${problem}`,
+        ),
+      )
+    }
+    return h(Box, { flexDirection: 'column' }, ...rows, await next(e)) as RenderElement
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {

@@ -43,7 +43,8 @@ A plugin hook that shows status writes this pattern, one line after the other:
 - A missing required tool is a problem line of its own. It stops all other checks.
 - When there is nothing to show, write nothing.
 
-The gh plugin's `hook-io.ts status` writes this pattern, and its hooks module pins it. Its
+The gh plugin's `hook-io.ts status` writes this pattern. `status --json` writes the same facts as
+one JSON report, which its hooks module draws as rows of the prompt hint. Its
 `SessionStart` hook writes only the lines of its tool check. `plugins/gh/README.md` shows the
 lines.
 

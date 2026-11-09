@@ -154,36 +154,45 @@ kinds of detail that it removed. The rule is in
 
 ## Status line
 
-The plugin pins a status line under the prompt. Its hooks module, `hooks/register.ts`, runs
-`hooks/hook-io.ts status` for the session's directory and shows the output with `$.ui.status`:
+The plugin draws a status row under the prompt. Its hooks module, `hooks/register.ts`, runs
+`hooks/hook-io.ts status --json` for the session's directory, and draws the report as the first
+rows of the prompt hint:
 
 ```
-gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1] ⚠️ fetch failed in 15 repos: Invalid username or token ⚠️ GitHub request failed: Bad credentials (HTTP 401)
+gh: [repos: 21] [behind] [✂️ 27] [🔀 3] [🤖 4] [🛡️ 1]
+gh: ⚠️ fetch failed in 15 repos: Invalid username or token
+gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 ```
 
-`status` writes a status line, then one line for each kind of problem. The module joins the
-lines into one pinned line, with one `gh:` at the start. The next check replaces the line.
+Each bracket has its own theme colour. Each kind of problem has a row of its own, in the warning
+colour. With one repository, 🔀, 🤖 and 🛡️ are links to their GitHub pages. In a folder, the
+counts are sums, so they are not links. The next check replaces the rows.
+
+No render site of Claude Code sits between your `statusLine` and the permission mode line. So
+the rows show under the permission mode line. A surface that does not draw the prompt hint,
+such as VS Code or mobile, gets the same items as one line, with `$.ui.status`.
 
 | Item | What it shows |
 | --- | --- |
 | `repos: N` | The repositories checked, when there is more than one. |
 | `behind` | At least one local `<default>` is behind its `origin/<default>`. |
 | ✂️ | Local branches that `/gh:sync` can remove. See below. |
-| 🤖 | Open pull requests that Dependabot opened. A repository with more than 100 open pull requests gets a problem line. |
+| 🔀 | Open pull requests that are not drafts, and that Dependabot did not open. |
+| 🤖 | Open pull requests that Dependabot opened. A repository with more than 100 open pull requests gets a problem line for 🔀 and 🤖. |
 | 🛡️ | Open Dependabot alerts. |
 
 The module starts the first check when the session starts, and the session does not wait for
 it. It checks again every five minutes, and after each Bash command that starts with `git` or
 `gh`, or runs `/gh:sync`. Only one check runs at a time. A request that comes during a check
 starts one more check after it. The first check can read the counts before the change. When
-every count is zero and nothing failed, the module clears the line.
+every count is zero and nothing failed, the module clears the rows.
 
-A check that does not run keeps the last line. So does a check that exits with a code other than
-0 and writes no line. A crash in `status` exits 1 for this reason. The module writes the reason
-once to the transcript, until a check pins or clears the line again. A check that writes its line
-and then ends with `SIGKILL` (see below) still pins that line.
+A check that does not run keeps the last rows, and draws them dim. So does a check that writes no
+report. A crash in `status` exits 1 for this reason. The module writes the reason once to the
+transcript. The rows are bright again after the next check that gives a report. A check that
+writes its report and then ends with `SIGKILL` (see below) still gives that report.
 
-The line shows only the items above zero.
+The row shows only the items above zero.
 
 A local branch counts for ✂️ when one of these is true. The default branch and the current
 branch never count.
@@ -253,16 +262,19 @@ can run to report that:
 gh: ⚠️ node not found on PATH
 ```
 
-Below the node floor, the hook writes one line with the floor name, then exits 0:
+Below the node floor, the hook writes one line with the floor name, then exits 0. With
+`--json`, that line is the one problem of the report:
 
 ```
 gh: ⚠️ node "v20.19.0" is below the floor: 22.18.0 or newer.
 ```
 
-The hook is `hooks/hook-io.ts`. To see the status lines by hand, run it with `status`:
+The hook is `hooks/hook-io.ts`. To see the status lines by hand, run it with `status`. Add
+`--json` to see the report that the module draws:
 
 ```bash
 node <plugin>/hooks/hook-io.ts status /path/to/a/repo-or-folder
+node <plugin>/hooks/hook-io.ts status --json /path/to/a/repo-or-folder
 ```
 
 ## Credentials

@@ -198,7 +198,7 @@ it('answers every endpoint it declares', async () => {
     createCommitStatus: { id: 1, context: 'workstreams/review-1', state: 'success' },
     repositoryStatus: {
       repositories: {
-        'acme/widgets': { alerts: 1, dependencies: 2, mergedPullRequests: [] },
+        'acme/widgets': { alerts: 1, dependencies: 2, pullRequests: 0, mergedPullRequests: [] },
       },
       unavailable: null,
     },

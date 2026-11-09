@@ -143,7 +143,7 @@ it('answers anything it does not know with the usage line and exit 2', async () 
 })
 
 it('names both subcommands in its usage line', () => {
-  expect(USAGE).toBe('usage: hook-io.ts {session-start|status [dir]}\n')
+  expect(USAGE).toBe('usage: hook-io.ts {session-start|status [--json] [dir]}\n')
 })
 
 // --- the helpers -------------------------------------------------------------

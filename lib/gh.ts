@@ -465,6 +465,9 @@ export interface RepositoryStatus {
   readonly alerts: number | null
   /** Open pull requests that Dependabot opened. */
   readonly dependencies: number | null
+  /** Open pull requests that are not drafts, and that Dependabot did not
+   *  open. */
+  readonly pullRequests: number | null
   /** The last 100 merged pull requests, most recently updated first. */
   readonly mergedPullRequests: readonly MergedHead[] | null
 }
@@ -1163,7 +1166,7 @@ const STATUS_FIELDS = `
     vulnerabilityAlerts(states: OPEN) { totalCount }
     open: pullRequests(states: OPEN, first: 100) {
       totalCount
-      nodes { author { login } }
+      nodes { author { login } isDraft }
     }
     merged: pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { headRefName headRefOid isCrossRepository }
@@ -1212,12 +1215,44 @@ const authorLogin = (value: unknown): string | null | undefined => {
  * search makes all of `data` null.
  */
 const dependabotCount = (value: unknown): number | null => {
+  const rows = openRows(value)
+  return rows === null ? null : rows.filter((row) => row.login === DEPENDABOT).length
+}
+
+/**
+ * How many open pull requests are ready for review: not a draft, and not
+ * opened by Dependabot, which {@link dependabotCount} counts. `null` when the
+ * list cannot give the answer, as for {@link dependabotCount}.
+ */
+const readyCount = (value: unknown): number | null => {
+  const rows = openRows(value)
+  return rows === null
+    ? null
+    : rows.filter((row) => !row.isDraft && row.login !== DEPENDABOT).length
+}
+
+/** One open pull request: its author login and whether it is a draft. */
+interface OpenRow {
+  readonly login: string | null
+  readonly isDraft: boolean
+}
+
+/**
+ * Every row of the first 100 open pull requests, or `null` when the list
+ * is short of `totalCount`, or a row is not the shape asked for.
+ */
+const openRows = (value: unknown): OpenRow[] | null => {
   const total = totalCount(value)
   const nodes = asRecord(value)?.nodes
   if (total === null || !Array.isArray(nodes) || nodes.length < total) return null
-  const logins = nodes.map(authorLogin)
-  if (logins.includes(undefined)) return null
-  return logins.filter((login) => login === DEPENDABOT).length
+  const rows: OpenRow[] = []
+  for (const node of nodes) {
+    const login = authorLogin(node)
+    const isDraft = asRecord(node)?.isDraft
+    if (login === undefined || typeof isDraft !== 'boolean') return null
+    rows.push({ login, isDraft })
+  }
+  return rows
 }
 
 /** One merged pull request, or `null` when it is not the shape asked for. */
@@ -1271,6 +1306,7 @@ const readStatusBatch = (
     repositories[repo] = {
       alerts: totalCount(answer.vulnerabilityAlerts),
       dependencies: dependabotCount(answer.open),
+      pullRequests: readyCount(answer.open),
       mergedPullRequests: mergedHeads(answer.merged),
     }
   })

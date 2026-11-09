@@ -1,6 +1,6 @@
 // This file is the entry point for the gh plugin's hook logic. `hooks.json`
 // runs it as `session-start`, the dependency check. The hooks module
-// (`register.ts`) runs it as `status <dir>`, the line it pins. It holds no
+// (`register.ts`) runs it as `status --json <dir>`, the row it draws. It holds no
 // decisions: `src/subcommands/hook-io.ts` is the hook, and it takes the
 // process's own edges as arguments. The tests call it there, with no
 // process.
@@ -37,7 +37,9 @@
 // the line. For `session-start`, this file writes the `systemMessage` JSON
 // itself, with no colour and no further import. So the write does not
 // depend on a module graph that the runtime below the floor might not
-// load. For `status`, it writes the bare line, which the hooks module pins.
+// load. For `status`, it writes the bare line. For `status --json`, it
+// writes the report with the line as its one problem, which the hooks
+// module draws.
 import { belowFloorMessage, meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
@@ -82,11 +84,16 @@ if (meetsNodeFloor(process.version)) {
   process.stdout.on('error', (error) => {
     if ((error as NodeJS.ErrnoException).code !== 'EPIPE') throw error
   })
-  const line = `gh: ⚠️ ${belowFloorMessage(process.version)}`
+  const message = belowFloorMessage(process.version)
+  const line = `gh: ⚠️ ${message}`
+  const counts = { behind: 0, prune: 0, pullRequests: 0, dependencies: 0, alerts: 0 }
+  const report = { counts, repos: 0, repository: null, problems: [message] }
   process.stdout.write(
-    process.argv[2] === 'status'
-      ? `${line}\n`
-      : `${JSON.stringify({ systemMessage: `\n${line}` })}\n`,
+    process.argv[2] !== 'status'
+      ? `${JSON.stringify({ systemMessage: `\n${line}` })}\n`
+      : process.argv[3] === '--json'
+        ? `${JSON.stringify(report)}\n`
+        : `${line}\n`,
   )
   process.exitCode = 0
 }

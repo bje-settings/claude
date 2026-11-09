@@ -81,9 +81,10 @@ export const githubRepo = (rig: Rig, root: string, name: string): string =>
   onGitHub(rig, rig.git.create(root), name)
 
 /** One repository's GitHub side, as the double answers it. */
-export const side = (alerts = 0, dependencies = 0, merged: unknown[] = []) => ({
+export const side = (alerts = 0, dependencies = 0, merged: unknown[] = [], pullRequests = 0) => ({
   alerts,
   dependencies,
+  pullRequests,
   mergedPullRequests: merged as {
     headRefName: string
     headRefOid: string

@@ -8,9 +8,11 @@
 // no payload, fetches nothing and counts nothing.
 //
 // `status [dir]` writes the bare status line, then one problem line for each
-// kind of failure, or nothing. The hooks module (`hooks/register.ts`) runs
-// it and pins its stdout under the prompt. A person can also run it by hand.
-// {@link statusLine} and {@link problemLines} shape the lines, and
+// kind of failure, or nothing. A person can run it by hand.
+// `status --json [dir]` writes the same facts as one JSON document,
+// {@link StatusReport}, always. The hooks module (`hooks/register.ts`) runs
+// it, and draws the row under the prompt from it.
+// {@link statusLine} and {@link problemLine} shape the lines, and
 // `plugins/gh/README.md` shows them.
 //
 // `status` finds the repository that holds the directory, or the
@@ -60,7 +62,7 @@ export const DEADLINE_MS = 2_500
  *  stay under the 3 s that `hooks.json` gives. */
 export const END_GRACE_MS = 20
 
-export const USAGE = 'usage: hook-io.ts {session-start|status [dir]}\n'
+export const USAGE = 'usage: hook-io.ts {session-start|status [--json] [dir]}\n'
 
 /** These variables name a DIFFERENT repository than the one a call is
  *  about. Every git call, and the `gh` client, get an environment without
@@ -102,8 +104,18 @@ export const scrubRepositoryEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
 export interface StatusCounts {
   readonly behind: number
   readonly prune: number
+  readonly pullRequests: number
   readonly dependencies: number
   readonly alerts: number
+}
+
+/** Every count at zero. */
+const ZERO_COUNTS: StatusCounts = {
+  behind: 0,
+  prune: 0,
+  pullRequests: 0,
+  dependencies: 0,
+  alerts: 0,
 }
 
 /** The start of every line the hook writes. */
@@ -111,7 +123,7 @@ const PREFIX = 'gh:'
 
 /**
  * The status line, or `null` when there is nothing to show. This and
- * {@link problemLines} are the only places that shape a line.
+ * {@link problemLine} are the only places that shape a line.
  *
  * A zero count is left out. `behind` shows no number. The repository count
  * comes first, only when there is more than one repository, and never
@@ -121,6 +133,7 @@ export const statusLine = (counts: StatusCounts, repoCount: number): string | nu
   const items: string[] = []
   if (counts.behind > 0) items.push('[behind]')
   if (counts.prune > 0) items.push(`[✂️ ${counts.prune}]`)
+  if (counts.pullRequests > 0) items.push(`[🔀 ${counts.pullRequests}]`)
   if (counts.dependencies > 0) items.push(`[🤖 ${counts.dependencies}]`)
   if (counts.alerts > 0) items.push(`[🛡️ ${counts.alerts}]`)
   if (items.length === 0) return null
@@ -173,6 +186,7 @@ const KINDS = {
   githubLate: { words: 'GitHub request timed out', repos: false },
   noAnswer: { words: 'GitHub gave no answer', repos: true },
   alerts: { words: 'alerts could not be read', repos: true },
+  pullRequests: { words: 'open pull requests could not be read', repos: true },
   dependencies: { words: 'dependency pull requests could not be read', repos: true },
   merged: { words: 'merged pull requests could not be read', repos: true },
 } as const
@@ -213,7 +227,7 @@ const shortCause = (cause: string): string => {
  * cause is the one the first failure of the kind came with. Failures are in
  * the order they arrive, so in a folder the cause can change between runs.
  */
-const problemLines = (failures: readonly Failure[], folder: boolean): string[] =>
+const problemTexts = (failures: readonly Failure[], folder: boolean): string[] =>
   (Object.keys(KINDS) as Kind[]).flatMap((kind) => {
     const hits = failures.filter((failure) => failure.kind === kind)
     const [first] = hits
@@ -222,7 +236,7 @@ const problemLines = (failures: readonly Failure[], folder: boolean): string[] =
     const count =
       folder && repos ? ` in ${hits.length} ${hits.length === 1 ? 'repo' : 'repos'}` : ''
     const cause = first.cause === null ? '' : shortCause(first.cause)
-    return [problemLine(`${words}${count}${cause === '' ? '' : `: ${cause}`}`)]
+    return [`${words}${count}${cause === '' ? '' : `: ${cause}`}`]
   })
 
 /**
@@ -547,6 +561,9 @@ const addGitHub = (
     }
     if (status.alerts === null) failed('alerts', `${name}: alerts could not be read`)
     else tally.alerts += status.alerts
+    if (status.pullRequests === null)
+      failed('pullRequests', `${name}: open pull requests could not be read`)
+    else tally.pullRequests += status.pullRequests
     if (status.dependencies === null)
       failed('dependencies', `${name}: dependency pull requests could not be read`)
     else tally.dependencies += status.dependencies
@@ -594,23 +611,32 @@ const causeOf = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** What {@link checkStatus} and {@link checkDependencies} answer: the lines
- *  to write, and the `additionalContext` to write beside them, set only
- *  when a dependency is absent (#243). */
-interface Status {
-  readonly line: string
+/** What {@link checkDependencies} answers: one problem for each tool that
+ *  is absent or not checked, and `additionalContext` when one is absent. */
+interface Missing {
+  readonly problems: readonly string[]
   readonly additionalContext?: string
 }
 
+/** What `status --json` writes: the counts, the number of repositories,
+ *  the `owner/name` when there is exactly one, and one problem for each
+ *  kind of failure, with no `gh: ⚠️ ` prefix. */
+export interface StatusReport {
+  readonly counts: StatusCounts
+  readonly repos: number
+  readonly repository: string | null
+  readonly problems: readonly string[]
+}
+
 /**
- * The dependency check: {@link Status} with one problem line for each tool
+ * The dependency check: {@link Missing} with one problem for each tool
  * that is absent, or that the `PATH` walk did not check in time. It is
  * `null` when every tool is present. Each problem also goes to stderr.
  */
 const checkDependencies = async (
   edges: HookEdges,
   timeoutMs: () => number,
-): Promise<Status | null> => {
+): Promise<Missing | null> => {
   const found = await Promise.all(
     DEPENDENCIES.map((dependency) => onPath(dependency.tool, edges.env, edges.files, timeoutMs())),
   )
@@ -625,25 +651,26 @@ const checkDependencies = async (
       ...unchecked.map((dependency) => `${dependency.label} could not be checked`),
     ]
     for (const problem of problems) edges.output.err.write(`${problem}\n`)
-    const line = problems.map(problemLine).join('\n')
-    return absent.length > 0 ? { line, additionalContext: dependencyContext(absent) } : { line }
+    return absent.length > 0
+      ? { problems, additionalContext: dependencyContext(absent) }
+      : { problems }
   }
   return null
 }
 
 /**
- * {@link Status} for `target`, or `null` when there is nothing to show: the
- * status line, then one problem line for each kind of failure. Each failure
- * also goes to stderr, one line each. A missing tool stops every check, and
- * the lines of {@link checkDependencies} take the place of the status.
+ * {@link StatusReport} for `target`. Each failure also goes to stderr, one
+ * line each. A missing tool stops every check, and the problems of
+ * {@link checkDependencies} take the place of the counts.
  */
 const checkStatus = async (
   target: string,
   edges: HookEdges,
   timeoutMs: () => number,
-): Promise<Status | null> => {
+): Promise<StatusReport> => {
   const missing = await checkDependencies(edges, timeoutMs)
-  if (missing !== null) return missing
+  if (missing !== null)
+    return { counts: ZERO_COUNTS, repos: 0, repository: null, problems: missing.problems }
   const env = scrubRepositoryEnv(edges.env)
   const failures: Failure[] = []
   const failed: Failed = (kind, line, cause) => {
@@ -675,7 +702,7 @@ const checkStatus = async (
     return null
   }
 
-  const tally: Tally = { behind: 0, prune: 0, dependencies: 0, alerts: 0 }
+  const tally: Tally = { ...ZERO_COUNTS }
   let roots: readonly string[] = []
   let checkouts: Checkout[] = []
   try {
@@ -719,10 +746,21 @@ const checkStatus = async (
     clearTimeout(timer)
   }
   for (const failure of failures) edges.output.err.write(`${failure.line}\n`)
-  const status = statusLine(tally, checkouts.length)
-  const lines = [...(status === null ? [] : [status]), ...problemLines(failures, roots.length > 1)]
-  if (lines.length === 0) return null
-  return { line: lines.join('\n') }
+  const [only] = checkouts
+  return {
+    counts: tally,
+    repos: checkouts.length,
+    repository: checkouts.length === 1 && only !== undefined ? only.name : null,
+    problems: problemTexts(failures, roots.length > 1),
+  }
+}
+
+/** The text `status` writes for `report`: the status line, then one
+ *  problem line for each problem. Empty when there is nothing to show. */
+export const statusText = (report: StatusReport): string => {
+  const status = statusLine(report.counts, report.repos)
+  const lines = [...(status === null ? [] : [status]), ...report.problems.map(problemLine)]
+  return lines.map((line) => `${line}\n`).join('')
 }
 
 /** The hook: argv in, an exit status out. */
@@ -730,13 +768,18 @@ export const runHookIo = async (argv: readonly string[], edges: HookEdges): Prom
   const [mode, dir] = argv
   const remaining = deadlineClock(edges.deadlineMs)
   if (mode === 'session-start' && argv.length === 1) {
-    const status = await checkDependencies(edges, remaining)
-    if (status !== null) edges.output.out.write(emit(status.line, status.additionalContext))
+    const missing = await checkDependencies(edges, remaining)
+    if (missing !== null)
+      edges.output.out.write(
+        emit(missing.problems.map(problemLine).join('\n'), missing.additionalContext),
+      )
     return 0
   }
-  if (mode === 'status' && argv.length <= 2) {
-    const status = await checkStatus(dir ?? edges.cwd(), edges, remaining)
-    if (status !== null) edges.output.out.write(`${status.line}\n`)
+  const json = mode === 'status' && dir === '--json'
+  const target = json ? argv[2] : dir
+  if (mode === 'status' && argv.length <= (json ? 3 : 2)) {
+    const report = await checkStatus(target ?? edges.cwd(), edges, remaining)
+    edges.output.out.write(json ? `${JSON.stringify(report)}\n` : statusText(report))
     return 0
   }
   edges.output.err.write(USAGE)

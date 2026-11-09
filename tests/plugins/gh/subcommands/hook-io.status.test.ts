@@ -363,7 +363,12 @@ it('warns about each field that came back empty, even with no reason given', asy
     createGhMock({
       repositoryStatus: {
         repositories: {
-          'acme/widgets': { alerts: 3, dependencies: null, mergedPullRequests: null },
+          'acme/widgets': {
+            alerts: 3,
+            dependencies: null,
+            pullRequests: null,
+            mergedPullRequests: null,
+          },
         },
         unavailable: null,
       },
@@ -372,13 +377,24 @@ it('warns about each field that came back empty, even with no reason given', asy
 
   expect(ran.stdout).toBe(
     'gh: [🛡️ 3]\n' +
+      'gh: ⚠️ open pull requests could not be read\n' +
       'gh: ⚠️ dependency pull requests could not be read\n' +
       'gh: ⚠️ merged pull requests could not be read\n',
   )
   expect(ran.stderr).toBe(
-    'acme/widgets: dependency pull requests could not be read\n' +
+    'acme/widgets: open pull requests could not be read\n' +
+      'acme/widgets: dependency pull requests could not be read\n' +
       'acme/widgets: merged pull requests could not be read\n',
   )
+})
+
+it('counts the open pull requests that are ready for review, after the prune count', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side(1, 2, [], 3) }))
+
+  expect(ran.stdout).toBe('gh: [🔀 3] [🤖 2] [🛡️ 1]\n')
 })
 
 it('warns about a repository the reply left out', async () => {
