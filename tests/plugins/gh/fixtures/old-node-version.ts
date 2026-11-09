@@ -5,9 +5,10 @@
 // after the override. `deleted-cwd.ts` reaches the outermost handler the
 // same way: it breaks a real precondition first.
 //
-// argv: the hook to run, then its mode (`session-start` when absent).
+// argv: the hook to run, then its mode (`session-start` when absent), then
+// the arguments of that mode.
 Object.defineProperty(process, 'version', { value: 'v20.19.0', configurable: true })
 
-const [hook = '', mode = 'session-start'] = process.argv.slice(2)
-process.argv = [process.argv[0] ?? '', hook, mode]
+const [hook = '', mode = 'session-start', ...rest] = process.argv.slice(2)
+process.argv = [process.argv[0] ?? '', hook, mode, ...rest]
 await import(hook)

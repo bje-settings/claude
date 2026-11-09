@@ -6,33 +6,28 @@ import {
   changesCounts,
   failureText,
   outcomeOf,
-  pinnedText,
+  parseReport,
+  plainText,
   REFRESH_MS,
+  type Report,
   RUN_TIMEOUT_MS,
+  SEGMENT_COLOUR,
+  segmentsOf,
 } from '#gh/status-pin.ts'
 
-it('pins the status line, then each problem without a second prefix, on one line', () => {
-  expect(
-    pinnedText(
-      'gh: [repos: 2] [behind]\ngh: ⚠️ fetch failed in 2 repos: Invalid username or token\ngh: ⚠️ GitHub request failed\n',
-    ),
-  ).toBe(
-    'gh: [repos: 2] [behind] ⚠️ fetch failed in 2 repos: Invalid username or token ⚠️ GitHub request failed',
-  )
+const ZERO = { behind: 0, prune: 0, pullRequests: 0, dependencies: 0, alerts: 0 }
+
+/** A report of one repository, `acme/widgets`, with `counts` over zero. */
+const report = (counts: Partial<Report['counts']> = {}, more: Partial<Report> = {}): Report => ({
+  counts: { ...ZERO, ...counts },
+  repos: 1,
+  repository: 'acme/widgets',
+  problems: [],
+  ...more,
 })
 
-it('pins a problem line alone when there is no status line', () => {
-  expect(pinnedText('gh: ⚠️ git not found on PATH\n')).toBe('gh: ⚠️ git not found on PATH')
-})
-
-it('keeps a later line that has no prefix as it is', () => {
-  expect(pinnedText('gh: [behind]\nsomething else\n')).toBe('gh: [behind] something else')
-})
-
-it('clears the line for an output with no text', () => {
-  expect(pinnedText('')).toBeUndefined()
-  expect(pinnedText('\n  \n')).toBeUndefined()
-})
+/** `value` as `status --json` writes it. */
+const line = (value: unknown): string => `${JSON.stringify(value)}\n`
 
 it('refreshes after a git or gh command, and after the sync of this plugin', () => {
   for (const command of [
@@ -86,27 +81,170 @@ it('refreshes every five minutes, and gives a run 15 seconds', () => {
   expect(RUN_TIMEOUT_MS).toBe(15_000)
 })
 
-it('pins the stdout of an exit 0, and clears the line for an empty one', () => {
-  expect(outcomeOf({ exitCode: 0, stdout: 'gh: [behind]\n', stderr: 'a cause\n' })).toEqual({
+// --- parseReport ---------------------------------------------------------------
+
+it('reads the report on the first line of stdout', () => {
+  const value = report({ behind: 1, alerts: 2 }, { problems: ['timed out'] })
+  expect(parseReport(line(value))).toEqual(value)
+  expect(parseReport(`${line(value)}more text\n`)).toEqual(value)
+  expect(parseReport(JSON.stringify(report({}, { repository: null })))).toEqual(
+    report({}, { repository: null }),
+  )
+})
+
+it('reads no report from text that is not JSON, or JSON that is not a report', () => {
+  const good = report()
+  for (const stdout of [
+    '',
+    '\n',
+    'gh: [behind]\n',
+    `\n${line(good)}`,
+    line(null),
+    line(3),
+    line('text'),
+    line({ ...good, counts: null }),
+    line({ ...good, counts: 'none' }),
+    line({ ...good, counts: { ...ZERO, pullRequests: '1' } }),
+    line({ ...good, counts: { behind: 0, prune: 0, dependencies: 0, alerts: 0 } }),
+    line({ ...good, repos: '1' }),
+    line({ ...good, repository: 7 }),
+    line({ counts: ZERO, repos: 1, problems: [] }),
+    line({ ...good, problems: 'timed out' }),
+    line({ ...good, problems: ['timed out', 2] }),
+  ]) {
+    expect([stdout, parseReport(stdout)]).toEqual([stdout, null])
+  }
+})
+
+it('reads no report when any one count is missing or not a number', () => {
+  const good = report()
+  for (const key of Object.keys(ZERO)) {
+    const all: Record<string, number> = ZERO
+    const { [key]: _, ...without } = all
+    for (const counts of [without, { ...ZERO, [key]: '1' }]) {
+      const stdout = line({ ...good, counts })
+      expect([key, parseReport(stdout)]).toEqual([key, null])
+    }
+  }
+})
+
+// --- outcomeOf -----------------------------------------------------------------
+
+it('draws the report of an exit 0', () => {
+  const value = report({ behind: 1 })
+  expect(outcomeOf({ exitCode: 0, stdout: line(value), stderr: 'a cause\n' })).toEqual({
     kind: 'pin',
-    text: 'gh: [behind]',
-  })
-  expect(outcomeOf({ exitCode: 0, stdout: '', stderr: '' })).toEqual({
-    kind: 'pin',
-    text: undefined,
+    report: value,
   })
 })
 
-it('pins a line that a run wrote before a signal ended it, as exit 1', () => {
-  expect(outcomeOf({ exitCode: 1, stdout: 'gh: [✂️ 2]\n', stderr: '' })).toEqual({
+it('draws a report that a run wrote before a signal ended it, as exit 1', () => {
+  const value = report({ prune: 2 })
+  expect(outcomeOf({ exitCode: 1, stdout: line(value), stderr: '' })).toEqual({
     kind: 'pin',
-    text: 'gh: [✂️ 2]',
+    report: value,
   })
 })
 
-it('fails a run that exits non-zero with no line', () => {
+it('fails an exit 0 that wrote no report', () => {
+  for (const stdout of ['', 'gh: [behind]\n']) {
+    expect(outcomeOf({ exitCode: 0, stdout, stderr: 'ignored\n' })).toEqual({
+      kind: 'failed',
+      text: 'gh: the status check wrote no report',
+    })
+  }
+})
+
+it('fails a run that exits non-zero with no report', () => {
   expect(outcomeOf({ exitCode: 1, stdout: '\n', stderr: 'Error: ENOENT\n    at x\n' })).toEqual({
     kind: 'failed',
     text: 'gh: the status check failed with exit 1: Error: ENOENT',
   })
+})
+
+// --- segmentsOf ----------------------------------------------------------------
+
+const PULLS = 'https://github.com/acme/widgets/pulls?q=is%3Apr+is%3Aopen'
+
+it('gives every bracket in the order of the status line, with pages for one repository', () => {
+  expect(
+    segmentsOf(report({ behind: 3, prune: 1, pullRequests: 2, dependencies: 4, alerts: 5 })),
+  ).toEqual([
+    { kind: 'behind', label: 'behind' },
+    { kind: 'prune', label: '✂️', count: 1 },
+    {
+      kind: 'pullRequests',
+      label: '🔀',
+      count: 2,
+      href: `${PULLS}+draft%3Afalse+-author%3Aapp%2Fdependabot`,
+    },
+    { kind: 'dependencies', label: '🤖', count: 4, href: `${PULLS}+author%3Aapp%2Fdependabot` },
+    {
+      kind: 'alerts',
+      label: '🛡️',
+      count: 5,
+      href: 'https://github.com/acme/widgets/security/dependabot',
+    },
+  ])
+})
+
+it('leaves out each zero count', () => {
+  expect(segmentsOf(report())).toEqual([])
+  expect(segmentsOf(report({ alerts: 1 })).map((segment) => segment.kind)).toEqual(['alerts'])
+  expect(segmentsOf(report({ prune: 1, dependencies: 1 })).map((s) => s.kind)).toEqual([
+    'prune',
+    'dependencies',
+  ])
+})
+
+it('puts the repository count first in a folder, and gives no bracket a page', () => {
+  const folder = report(
+    { behind: 1, pullRequests: 1, dependencies: 2, alerts: 3 },
+    { repos: 3, repository: null },
+  )
+  expect(segmentsOf(folder)).toEqual([
+    { kind: 'repos', label: 'repos:', count: 3 },
+    { kind: 'behind', label: 'behind' },
+    { kind: 'pullRequests', label: '🔀', count: 1 },
+    { kind: 'dependencies', label: '🤖', count: 2 },
+    { kind: 'alerts', label: '🛡️', count: 3 },
+  ])
+})
+
+it('never shows the repository count alone', () => {
+  expect(segmentsOf(report({}, { repos: 4, repository: null }))).toEqual([])
+})
+
+it('gives each kind a theme colour', () => {
+  expect(SEGMENT_COLOUR).toEqual({
+    repos: 'success',
+    behind: 'warning',
+    prune: 'suggestion',
+    pullRequests: 'planMode',
+    dependencies: 'merged',
+    alerts: 'error',
+  })
+})
+
+// --- plainText -----------------------------------------------------------------
+
+it('writes the brackets, then each problem, with no gh: prefix', () => {
+  expect(
+    plainText(
+      report(
+        { behind: 1, prune: 2, alerts: 3 },
+        { repos: 2, repository: null, problems: ['timed out', 'GitHub request failed'] },
+      ),
+    ),
+  ).toBe('[repos: 2] [behind] [✂️ 2] [🛡️ 3] ⚠️ timed out ⚠️ GitHub request failed')
+})
+
+it('writes a problem alone when there is no count', () => {
+  expect(plainText(report({}, { problems: ['git not found on PATH'] }))).toBe(
+    '⚠️ git not found on PATH',
+  )
+})
+
+it('clears the pin when there is nothing to show', () => {
+  expect(plainText(report())).toBeUndefined()
 })

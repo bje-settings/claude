@@ -36,7 +36,10 @@ const node = (alerts: number, dependencies: number, merged: unknown[] = []) => (
   vulnerabilityAlerts: { totalCount: alerts },
   open: {
     totalCount: dependencies,
-    nodes: Array.from({ length: dependencies }, () => ({ author: { login: 'dependabot' } })),
+    nodes: Array.from({ length: dependencies }, () => ({
+      author: { login: 'dependabot' },
+      isDraft: false,
+    })),
   },
   merged: { nodes: merged },
 })
@@ -75,7 +78,7 @@ it('asks gh one aliased query, bounded by the time it was given', async () => {
     vulnerabilityAlerts(states: OPEN) { totalCount }
     open: pullRequests(states: OPEN, first: 100) {
       totalCount
-      nodes { author { login } }
+      nodes { author { login } isDraft }
     }
     merged: pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { headRefName headRefOid isCrossRepository }
@@ -99,8 +102,8 @@ it('answers each repository with its two counts and its merged pull requests', a
 
   expect(answer).toEqual({
     repositories: {
-      'acme/widgets': { alerts: 2, dependencies: 3, mergedPullRequests: [head] },
-      'acme/gadgets': { alerts: 0, dependencies: 1, mergedPullRequests: [] },
+      'acme/widgets': { alerts: 2, dependencies: 3, pullRequests: 0, mergedPullRequests: [head] },
+      'acme/gadgets': { alerts: 0, dependencies: 1, pullRequests: 0, mergedPullRequests: [] },
     },
     unavailable: null,
   })
@@ -112,10 +115,10 @@ it('counts only the open pull requests that Dependabot opened', async () => {
   const open = {
     totalCount: 4,
     nodes: [
-      { author: { login: 'dependabot' } },
-      { author: { login: 'octocat' } },
-      { author: null },
-      { author: { login: 'dependabot' } },
+      { author: { login: 'dependabot' }, isDraft: false },
+      { author: { login: 'octocat' }, isDraft: false },
+      { author: null, isDraft: false },
+      { author: { login: 'dependabot' }, isDraft: false },
     ],
   }
   const gh = createGhClient({
@@ -125,7 +128,52 @@ it('counts only the open pull requests that Dependabot opened', async () => {
   const answer = await gh.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })
 
   expect(answer).toEqual({
-    repositories: { 'acme/widgets': { alerts: 0, dependencies: 2, mergedPullRequests: [] } },
+    repositories: {
+      'acme/widgets': { alerts: 0, dependencies: 2, pullRequests: 2, mergedPullRequests: [] },
+    },
+    unavailable: null,
+  })
+})
+
+it('counts the open pull requests that are ready for review, apart from Dependabot', async () => {
+  // A draft is not counted, and neither is a pull request Dependabot opened.
+  // A Dependabot draft is still a Dependabot pull request.
+  const open = {
+    totalCount: 5,
+    nodes: [
+      { author: { login: 'octocat' }, isDraft: false },
+      { author: { login: 'octocat' }, isDraft: true },
+      { author: { login: 'dependabot' }, isDraft: false },
+      { author: { login: 'dependabot' }, isDraft: true },
+      { author: { login: 'hubot' }, isDraft: false },
+    ],
+  }
+  const gh = createGhClient({
+    run: async () => result({ stdout: JSON.stringify({ data: { r0: { ...node(0, 0), open } } }) }),
+  })
+
+  const answer = await gh.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })
+
+  expect(answer).toEqual({
+    repositories: {
+      'acme/widgets': { alerts: 0, dependencies: 2, pullRequests: 2, mergedPullRequests: [] },
+    },
+    unavailable: null,
+  })
+})
+
+it('reads both pull request counts as unreadable when a row has no draft flag', async () => {
+  const open = { totalCount: 1, nodes: [{ author: { login: 'octocat' } }] }
+  const gh = createGhClient({
+    run: async () => result({ stdout: JSON.stringify({ data: { r0: { ...node(0, 0), open } } }) }),
+  })
+
+  const answer = await gh.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })
+
+  expect(answer).toEqual({
+    repositories: {
+      'acme/widgets': { alerts: 0, dependencies: null, pullRequests: null, mergedPullRequests: [] },
+    },
     unavailable: null,
   })
 })
@@ -133,28 +181,39 @@ it('counts only the open pull requests that Dependabot opened', async () => {
 it('reads the count as unreadable when the list is short or a row is not the shape asked for', async () => {
   // More than 100 open pull requests: the rows after the first 100 could be
   // Dependabot's, so a count of the first 100 could be too low.
-  const dependabot = { author: { login: 'dependabot' } }
+  // Each other repository has one fault: a row with no author login, a
+  // draft flag that is not a boolean, no `totalCount`, or `nodes` that is
+  // not a list.
+  const dependabot = { author: { login: 'dependabot' }, isDraft: false }
+  const octocat = { login: 'octocat' }
+  // Five repositories, so one query asks for all of them.
+  const repos = ['acme/a', 'acme/b', 'acme/c', 'acme/d', 'acme/e']
   const gh = createGhClient({
     run: async () =>
       result({
         stdout: JSON.stringify({
           data: {
             r0: { ...node(1, 0), open: { totalCount: 101, nodes: [dependabot] } },
-            r1: { ...node(1, 0), open: { totalCount: 2, nodes: [dependabot, { author: {} }] } },
-            r2: { ...node(1, 0), open: { totalCount: 1, nodes: 'none' } },
+            r1: {
+              ...node(1, 0),
+              open: { totalCount: 2, nodes: [dependabot, { author: {}, isDraft: false }] },
+            },
+            r2: { ...node(1, 0), open: { totalCount: 1, nodes: { length: 1 } } },
+            r3: {
+              ...node(1, 0),
+              open: { totalCount: 1, nodes: [{ author: octocat, isDraft: 'false' }] },
+            },
+            r4: { ...node(1, 0), open: { nodes: [dependabot] } },
           },
         }),
       }),
   })
 
-  const answer = await gh.repositoryStatus(['acme/a', 'acme/b', 'acme/c'], { boundMs: 1_000 })
+  const answer = await gh.repositoryStatus(repos, { boundMs: 1_000 })
 
+  const unreadable = { alerts: 1, dependencies: null, pullRequests: null, mergedPullRequests: [] }
   expect(answer).toEqual({
-    repositories: {
-      'acme/a': { alerts: 1, dependencies: null, mergedPullRequests: [] },
-      'acme/b': { alerts: 1, dependencies: null, mergedPullRequests: [] },
-      'acme/c': { alerts: 1, dependencies: null, mergedPullRequests: [] },
-    },
+    repositories: Object.fromEntries(repos.map((repo) => [repo, unreadable])),
     unavailable: null,
   })
 })
@@ -183,7 +242,9 @@ it('drops only the field a partial answer could not give, and says why', async (
   const answer = await gh.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })
 
   expect(answer).toEqual({
-    repositories: { 'acme/widgets': { alerts: null, dependencies: 4, mergedPullRequests: [] } },
+    repositories: {
+      'acme/widgets': { alerts: null, dependencies: 4, pullRequests: 0, mergedPullRequests: [] },
+    },
     unavailable: 'Resource not accessible by integration',
   })
 })
@@ -209,7 +270,9 @@ it('leaves out a repository GitHub could not resolve, and keeps the others', asy
   const answer = await gh.repositoryStatus(['acme/gone', 'acme/widgets'], { boundMs: 1_000 })
 
   expect(answer).toEqual({
-    repositories: { 'acme/widgets': { alerts: 1, dependencies: 0, mergedPullRequests: [] } },
+    repositories: {
+      'acme/widgets': { alerts: 1, dependencies: 0, pullRequests: 0, mergedPullRequests: [] },
+    },
     unavailable: "Could not resolve to a Repository with the name 'acme/gone'.",
   })
 })
@@ -242,10 +305,10 @@ it('reads a field that is not the shape it asked for as unreadable', async () =>
   // is one row short could hide the row that proves a squash merge.
   expect(answer).toEqual({
     repositories: {
-      'acme/a': { alerts: null, dependencies: null, mergedPullRequests: null },
-      'acme/b': { alerts: 0, dependencies: 0, mergedPullRequests: null },
-      'acme/d': { alerts: 0, dependencies: 0, mergedPullRequests: null },
-      'acme/e': { alerts: 0, dependencies: 0, mergedPullRequests: null },
+      'acme/a': { alerts: null, dependencies: null, pullRequests: null, mergedPullRequests: null },
+      'acme/b': { alerts: 0, dependencies: 0, pullRequests: 0, mergedPullRequests: null },
+      'acme/d': { alerts: 0, dependencies: 0, pullRequests: 0, mergedPullRequests: null },
+      'acme/e': { alerts: 0, dependencies: 0, pullRequests: 0, mergedPullRequests: null },
     },
     unavailable: null,
   })
@@ -338,7 +401,9 @@ it('reads an errors field that is not a list as no reason, and keeps the answer'
   const answer = await gh.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })
 
   expect(answer).toEqual({
-    repositories: { 'acme/widgets': { alerts: 1, dependencies: 2, mergedPullRequests: [] } },
+    repositories: {
+      'acme/widgets': { alerts: 1, dependencies: 2, pullRequests: 0, mergedPullRequests: [] },
+    },
     unavailable: null,
   })
 })

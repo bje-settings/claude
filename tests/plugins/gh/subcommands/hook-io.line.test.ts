@@ -4,7 +4,7 @@
 import { expect, it } from 'vitest'
 import { githubRepository, type StatusCounts, statusLine } from '#gh/subcommands/hook-io.ts'
 
-const ZERO: StatusCounts = { behind: 0, prune: 0, dependencies: 0, alerts: 0 }
+const ZERO: StatusCounts = { behind: 0, prune: 0, pullRequests: 0, dependencies: 0, alerts: 0 }
 
 it('says nothing when every count is zero', () => {
   expect(statusLine(ZERO, 1)).toBeNull()
@@ -14,27 +14,28 @@ it('says nothing when every count is zero', () => {
 it('writes each item alone, in its own words', () => {
   expect(statusLine({ ...ZERO, behind: 3 }, 1)).toBe('gh: [behind]')
   expect(statusLine({ ...ZERO, prune: 2 }, 1)).toBe('gh: [✂️ 2]')
+  expect(statusLine({ ...ZERO, pullRequests: 5 }, 1)).toBe('gh: [🔀 5]')
   expect(statusLine({ ...ZERO, dependencies: 4 }, 1)).toBe('gh: [🤖 4]')
   expect(statusLine({ ...ZERO, alerts: 1 }, 1)).toBe('gh: [🛡️ 1]')
 })
 
 it('writes every item together, in the fixed order', () => {
-  expect(statusLine({ behind: 1, prune: 2, dependencies: 3, alerts: 4 }, 1)).toBe(
-    'gh: [behind] [✂️ 2] [🤖 3] [🛡️ 4]',
+  expect(statusLine({ behind: 1, prune: 2, pullRequests: 5, dependencies: 3, alerts: 4 }, 1)).toBe(
+    'gh: [behind] [✂️ 2] [🔀 5] [🤖 3] [🛡️ 4]',
   )
 })
 
 it('leaves out a zero count between two counts above zero', () => {
-  expect(statusLine({ behind: 1, prune: 0, dependencies: 0, alerts: 4 }, 1)).toBe(
+  expect(statusLine({ behind: 1, prune: 0, pullRequests: 0, dependencies: 0, alerts: 4 }, 1)).toBe(
     'gh: [behind] [🛡️ 4]',
   )
 })
 
 it('names the repository count first, only when there is more than one repository', () => {
   expect(statusLine({ ...ZERO, prune: 1 }, 2)).toBe('gh: [repos: 2] [✂️ 1]')
-  expect(statusLine({ behind: 9, prune: 27, dependencies: 0, alerts: 0 }, 21)).toBe(
-    'gh: [repos: 21] [behind] [✂️ 27]',
-  )
+  expect(
+    statusLine({ behind: 9, prune: 27, pullRequests: 0, dependencies: 0, alerts: 0 }, 21),
+  ).toBe('gh: [repos: 21] [behind] [✂️ 27]')
   expect(statusLine({ ...ZERO, prune: 1 }, 1)).toBe('gh: [✂️ 1]')
   expect(statusLine({ ...ZERO, prune: 1 }, 0)).toBe('gh: [✂️ 1]')
 })

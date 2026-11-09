@@ -34,7 +34,7 @@ it('answers a wiring mistake with the usage line and exit 2, and nothing on stdo
 
     expect(result.status).toBe(2)
     expect(result.stdout).toBe('')
-    expect(result.stderr).toBe('usage: hook-io.ts {session-start|status [dir]}\n')
+    expect(result.stderr).toBe('usage: hook-io.ts {session-start|status [--json] [dir]}\n')
   }
 })
 
@@ -94,6 +94,26 @@ it('writes the bare floor line from status, for the hooks module to pin (#488)',
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('gh: ⚠️ node "v20.19.0" is below the floor: 22.18.0 or newer.\n')
+  expect(result.stderr).toBe('')
+})
+
+it('writes the floor message as the one problem of the report from status --json (#496)', () => {
+  const rig = createRig()
+
+  const result = runScript(path.join(FIXTURES, 'old-node-version.ts'), {
+    args: [HOOK, 'status', '--json', rig.sandbox.path],
+    env: rig.sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe(
+    `${JSON.stringify({
+      counts: { behind: 0, prune: 0, pullRequests: 0, dependencies: 0, alerts: 0 },
+      repos: 0,
+      repository: null,
+      problems: ['node "v20.19.0" is below the floor: 22.18.0 or newer.'],
+    })}\n`,
+  )
   expect(result.stderr).toBe('')
 })
 
@@ -238,13 +258,14 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
   ])
   // Well under the hook's own 3 s ceiling (`.claude/rules/_design-principles.md`).
   expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([3])
-  // The hooks module pins the status line (#488, ADR 007 ruling 7).
+  // The hooks module draws the status row (#488, #496, ADR 007 ruling 7).
   expect(config.modules).toEqual(['./register.ts'])
   expect(config.description).toBe(
     'The SessionStart command hook checks that git and the GitHub CLI are on PATH. It names ' +
-      'each tool that is not. The hooks module pins the repo status line under the prompt. ' +
-      'The line shows commits behind, branches to prune, dependency pull requests and ' +
-      'Dependabot alerts. Then it shows each kind of problem. It refreshes the line on a timer ' +
+      'each tool that is not. The hooks module draws the repo status row under the prompt. ' +
+      'The row shows commits behind, branches to prune, open pull requests, dependency pull ' +
+      'requests and Dependabot alerts. Then it shows each kind of problem. It refreshes the ' +
+      'row on a timer ' +
       'and after a git, gh or sync command. The check fetches, but never changes a branch, ' +
       'worktree, or working tree.',
   )
