@@ -76,7 +76,11 @@ async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void>
     )
     const outcome = outcomeOf(ran)
     if (outcome.kind === 'pin') {
-      pin.logged = false
+      const { problems } = outcome.report
+      // A report with problems draws dim, with no problem row. The
+      // problems go to the log, once for each run of failures.
+      if (problems.length === 0) pin.logged = false
+      else logOnce($, pin, `gh: ${problems.join('; ')}`)
       pin.stale = false
       pin.report = outcome.report
       $.ui.invalidate('ui.render')
@@ -95,12 +99,17 @@ async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void>
   }
 }
 
-/** Log `text` once for each run of failures. */
+/** Draw the row dim, and log `text` once for each run of failures. */
 function report($: EngineInterface, pin: Pin, text: string): void {
   if (!pin.stale) {
     pin.stale = true
     $.ui.invalidate('ui.render')
   }
+  logOnce($, pin, text)
+}
+
+/** Log `text`, unless this run of failures already has a log line. */
+function logOnce($: EngineInterface, pin: Pin, text: string): void {
   if (pin.logged) return
   pin.logged = true
   $.ui.log(text)
@@ -145,34 +154,22 @@ export const register: Register = (on) => {
     }
     const { report } = pin
     const segments = report === undefined ? [] : segmentsOf(report)
-    const problems = report?.problems ?? []
-    if (segments.length === 0 && problems.length === 0) return next(e)
+    if (segments.length === 0) return next(e)
     const { Box, Link, Text } = $.ui.resolve(e)
-    const dimColor = pin.stale
-    const rows = []
-    if (segments.length > 0) {
-      // One Text for each bracket, in its kind's colour. A bracket with a
-      // page is a link.
-      const brackets = segments.flatMap((segment) => {
-        const body =
-          segment.count === undefined ? segment.label : `${segment.label} ${segment.count}`
-        const text = `[${body}]`
-        const inner = segment.href === undefined ? text : h(Link, { href: segment.href }, text)
-        return [' ', h(Text, { color: SEGMENT_COLOUR[segment.kind], dimColor }, inner)]
-      })
-      rows.push(h(Text, { dimColor }, h(Text, { bold: true, dimColor }, 'gh:'), ...brackets))
-    }
-    for (const problem of problems) {
-      rows.push(
-        h(
-          Text,
-          { color: 'warning', dimColor },
-          h(Text, { bold: true, dimColor }, 'gh:'),
-          ` ⚠️ ${problem}`,
-        ),
-      )
-    }
-    return h(Box, { flexDirection: 'column' }, ...rows, await next(e)) as RenderElement
+    // A failed run, or a report with problems, draws the row dim and with
+    // no colour. The row shows no problem text.
+    const dimColor = pin.stale || (report?.problems.length ?? 0) > 0
+    // One Text for each bracket, in its kind's colour. A bracket with a
+    // page is a link.
+    const brackets = segments.flatMap((segment) => {
+      const body = segment.count === undefined ? segment.label : `${segment.label} ${segment.count}`
+      const text = `[${body}]`
+      const inner = segment.href === undefined ? text : h(Link, { href: segment.href }, text)
+      const color = dimColor ? undefined : SEGMENT_COLOUR[segment.kind]
+      return [' ', h(Text, { color, dimColor }, inner)]
+    })
+    const row = h(Text, { dimColor }, h(Text, { bold: true, dimColor }, 'gh:'), ...brackets)
+    return h(Box, { flexDirection: 'column' }, row, await next(e)) as RenderElement
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {

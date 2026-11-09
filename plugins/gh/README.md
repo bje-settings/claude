@@ -160,13 +160,12 @@ rows of the prompt hint:
 
 ```
 gh: [repos: 21] [behind] [✂️ 27] [🔀 3] [🤖 4] [🛡️ 1]
-gh: ⚠️ fetch failed in 15 repos: Invalid username or token
-gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 ```
 
-Each bracket has its own theme colour. Each kind of problem has a row of its own, in the warning
-colour. With one repository, 🔀, 🤖 and 🛡️ are links to their GitHub pages. With more than one
-repository, the counts are sums, so they are not links. The next check replaces the rows.
+Each bracket has its own theme colour. When the check reports a problem, the row shows no problem
+text. It draws dim, with no colour, and the module writes the problems once to the transcript.
+With one repository, 🔀, 🤖 and 🛡️ are links to their GitHub pages. With more than one
+repository, the counts are sums, so they are not links. The next check replaces the row.
 
 No render site of Claude Code sits between your `statusLine` and the permission mode line. So
 the rows show under the permission mode line. Some surfaces do not draw the prompt hint, such as
@@ -211,8 +210,8 @@ repositories. The queries and the fetches run at the same time.
 
 The whole check has 2.5 seconds. The time starts when `hook-io.ts` starts, so the `PATH` walk
 counts against it too. A part that fails, or does not finish
-in that time, gives no count. It gives a `gh: ⚠️` line instead, one line for each kind of problem,
-never one for each repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In
+in that time, gives no count. It gives a problem instead, one for each kind of problem, never one
+for each repository. `status` writes each problem as a `gh: ⚠️` line. Each kind has fixed words, such as `fetch failed` or `timed out`. In
 a folder of repositories, the line says how many repositories the kind hit: `in 15 repos`, or `in 1
 repo`.
 
