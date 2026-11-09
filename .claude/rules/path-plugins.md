@@ -22,3 +22,6 @@ time.
 
 `tests/repo/repo-layout.test.ts` enforces this (`developmentFiles`, `packageImports`,
 `reservedDirectoryNames`).
+
+A function-hooks plugin adds `hooks/register.ts` or `register.tsx`, and `types/`. ADR 007
+(`docs/adr/007-function-hooks-plugins.md`) says where each goes.

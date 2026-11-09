@@ -48,6 +48,9 @@ default. So a parsed command line is never partial, and no command grows a branc
 nobody passed. A bad flag, an absent value, a stray positional, or a value outside `choices` is
 `refused`, exit 2. `lib/README.md` has the worked examples and the rest of the contract.
 
+The hooks module of a function-hooks plugin does not follow this seam. It follows
+[ADR 007](../../docs/adr/007-function-hooks-plugins.md).
+
 ## `scripts/` is an adapter
 
 It turns `process.argv` into the command function's arguments. It constructs the real clients,
