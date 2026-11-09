@@ -41,13 +41,16 @@ interface Pin {
   /** True after a failed run was logged. A run that gives a report sets
    *  it back, so each run of failures gets one log line. */
   logged: boolean
+  /** True after the problems of a report were logged. A report with no
+   *  problems sets it back, so each run of problems gets one log line. */
+  problemsLogged: boolean
   /** The refresh timer. A second `session.start` in the same module
    *  replaces it, so only one timer runs. */
   timer: Timer | undefined
   /** The last report a run gave, or `undefined` before the first one. */
   report: Report | undefined
-  /** True after a run failed. The row then draws dim, with the last good
-   *  report, until a run gives a report again. */
+  /** True after a run failed. The row then draws dim and with no colour,
+   *  with the last good report, until a run gives a report again. */
   stale: boolean
   /** True once the surface drew the prompt hint. The row is there, so no
    *  `$.ui.status` pin is needed. */
@@ -56,9 +59,10 @@ interface Pin {
 
 /**
  * Run `status --json` for `cwd` and draw its report. A failed run keeps
- * the last report, drawn dim, and logs once for each run of failures. No
- * hook waits on this call, so the `catch` turns a run that rejects into a
- * log line.
+ * the last report, drawn dim, and logs once for each run of failures. A
+ * report with problems draws dim, and logs once for each run of problems.
+ * No hook waits on this call, so the `catch` turns a run that rejects
+ * into a log line.
  */
 async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void> {
   if (pin.running) {
@@ -78,9 +82,14 @@ async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void>
     if (outcome.kind === 'pin') {
       const { problems } = outcome.report
       // A report with problems draws dim, with no problem row. The
-      // problems go to the log, once for each run of failures.
-      if (problems.length === 0) pin.logged = false
-      else logOnce($, pin, `gh: ${problems.join('; ')}`)
+      // problems go to the log, once for each run of problems. A failed
+      // run has its own log line, so neither hides the other.
+      pin.logged = false
+      if (problems.length === 0) pin.problemsLogged = false
+      else if (!pin.problemsLogged) {
+        pin.problemsLogged = true
+        $.ui.log(`gh: ${problems.join('; ')}`)
+      }
       pin.stale = false
       pin.report = outcome.report
       $.ui.invalidate('ui.render')
@@ -105,11 +114,6 @@ function report($: EngineInterface, pin: Pin, text: string): void {
     pin.stale = true
     $.ui.invalidate('ui.render')
   }
-  logOnce($, pin, text)
-}
-
-/** Log `text`, unless this run of failures already has a log line. */
-function logOnce($: EngineInterface, pin: Pin, text: string): void {
   if (pin.logged) return
   pin.logged = true
   $.ui.log(text)
@@ -130,6 +134,7 @@ export const register: Register = (on) => {
     running: false,
     again: false,
     logged: false,
+    problemsLogged: false,
     timer: undefined,
     report: undefined,
     stale: false,
@@ -153,14 +158,15 @@ export const register: Register = (on) => {
       $.ui.status(undefined)
     }
     const { report } = pin
-    const segments = report === undefined ? [] : segmentsOf(report)
+    if (report === undefined) return next(e)
+    const segments = segmentsOf(report)
     if (segments.length === 0) return next(e)
     const { Box, Link, Text } = $.ui.resolve(e)
     // A failed run, or a report with problems, draws the row dim and with
     // no colour. The row shows no problem text.
-    const dimColor = pin.stale || (report?.problems.length ?? 0) > 0
-    // One Text for each bracket, in its kind's colour. A bracket with a
-    // page is a link.
+    const dimColor = pin.stale || report.problems.length > 0
+    // One Text for each bracket, in its kind's colour, or with no colour
+    // when the row is dim. A bracket with a page is a link.
     const brackets = segments.flatMap((segment) => {
       const body = segment.count === undefined ? segment.label : `${segment.label} ${segment.count}`
       const text = `[${body}]`

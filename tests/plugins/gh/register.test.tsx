@@ -144,6 +144,23 @@ test('a report with problems logs them once for each run of failures', async ($,
   expect(seen.logs).toEqual(['gh: a; b', 'gh: a; b'])
 })
 
+test('a failed run does not hide the problems of a report, and they do not hide it', async ($, on) => {
+  const { seen, clock } = stub(on, (index) =>
+    index % 2 === 0 ? ran('', 2, 'usage\n') : ran(report({ behind: 1 }, { problems: ['a'] })),
+  )
+
+  await $.session.start(START)
+  await clock.settle()
+  for (let run = 1; run < 4; run++) {
+    await $.tool.call({ tool: 'Bash', command: 'git pull' })
+    await clock.settle()
+  }
+
+  // The problems stay the same run of problems, so they log once.
+  const failed = 'gh: the status check failed with exit 2: usage'
+  expect(seen.logs).toEqual([failed, 'gh: a', failed])
+})
+
 test('a session start does not wait for the status run', async ($, on) => {
   const { seen, clock } = stub(on, () => ran(report({ behind: 1 })), { delayMs: 1_000 })
 
@@ -502,7 +519,9 @@ test('a report with problems draws the counts row dim, with no colour and no pro
   expect(rows.map((row) => row.text)).toEqual([`gh: [behind] ${ALERTS}[🛡️ 3]`, 'gh:'])
   expect(await ui.findAll({ type: 'Text', text: /⚠️|first|second/ })).toEqual([])
   for (const text of [/^gh:/, '[behind]', `${ALERTS}[🛡️ 3]`]) {
-    for (const element of await ui.findAll({ type: 'Text', text })) {
+    const found = await ui.findAll({ type: 'Text', text })
+    expect([String(text), found.length > 0]).toEqual([String(text), true])
+    for (const element of found) {
       expect([element.text, element.props.dimColor, element.props.color]).toEqual([
         element.text,
         true,
