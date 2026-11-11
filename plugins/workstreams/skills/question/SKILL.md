@@ -1,6 +1,6 @@
 ---
 name: question
-description: Turn a sweep report into an approved plan. Look up the guidance for each open item, then ask the open decisions in frontier rounds.
+description: Turn a sweep report into an approved plan. Look up the guidance for each open item, then ask about the open decisions in frontier rounds.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob EnterPlanMode ExitPlanMode
 user-invocable: false
 ---
@@ -37,25 +37,25 @@ reaches step 3 and cannot ask.
 
    Each ruling and each question cites its source. A question's description says what the
    guidance recommends, and the recommended option follows the guidance. A question whose
-   answer is already in the tree is not a question. It is a ruling with a citation, and it
-   goes in step 4. A decision that this step settles never enters the frontier.
+   answer is already in the tree is not a question. It is a ruling with a citation, for the
+   step 5 comment. A decision that this step settles never enters the frontier.
 
 3. Build a design tree from the decisions that are left. Each decision branches into the
-   decisions that depend on it. The frontier is each decision whose prerequisites are
+   decisions that depend on it. The frontier is each open decision whose prerequisites are
    settled.
 
-   Ask only the step 2 questions, and what is genuinely the person's to decide. The person
-   decides scope, shape, names that ship, what proves an acceptance line true, and order
-   against other efforts. Shape is the layer
-   count, and one pull request or a stack. The shape question states the review cost of each
-   extra layer or pull request, from the sweep's size estimate.
+   Ask only the questions that step 2 sorted. Put each decision that an answer opens through
+   step 2 before it enters the frontier. The person decides scope, shape, names that ship,
+   what proves an acceptance line true, and order against other efforts. Shape is the layer
+   count, and the choice of one pull request or a stack. The shape question states the
+   review cost of each extra layer or pull request, from the sweep's size estimate.
 
-   Ask the whole frontier in each round. Use `AskUserQuestion`, with at most four questions
-   in each call. A larger frontier takes more calls in the same round.
+   Before each round, rule each frontier decision that is cheap to reverse (step 4). Ask the
+   rest of the frontier in the round. Use `AskUserQuestion`, with at most four questions in
+   each call. A larger frontier takes more calls in the same round.
 
    Each question has two to four options, with the recommended option first and labelled.
-   The argument against it goes in its own description. A question that depends on another
-   question still open in this round goes to a later round. After the answers, compute the
+   The argument against it goes in its own description. After the answers, compute the
    frontier again.
 
    Facts are your work, never the person's. Read a short fact yourself. For a fact that
@@ -64,10 +64,11 @@ reaches step 3 and cannot ask.
    before the next round.
 
    The phase is done when the frontier is empty. Each branch then has a visit, and no
-   decision stays a silent assumption. A lookup that still runs keeps the frontier open.
+   decision stays a silent assumption. If a lookup still runs when the frontier is empty,
+   wait for its result.
 
 4. Take the rulings that are cheap to reverse, rather than ask. Such a ruling is one that
-   the person could reverse in one word. Record each one with what was chosen, and the
+   the person could reverse in one word. Record each one with the choice, and the
    argument for and against it, so the reversal costs nothing. A ruling takes its decision
    out of the frontier.
 
@@ -80,7 +81,7 @@ reaches step 3 and cannot ask.
 
 6. Enter plan mode yourself (`EnterPlanMode`), and write the plan in the shape
    [plan-shape.md](plan-shape.md) sets out. `ExitPlanMode` is the approval, and the person's
-   confirmation of the shared understanding. The human approves or edits the plan there.
+   confirmation of the shared understanding. The person approves or edits the plan there.
 
 7. After approval, check the round's issues once more:
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds --all --issues <n,n> --json`.
@@ -124,6 +125,6 @@ reaches step 3 and cannot ask.
 
    Note any open pull request of another effort that shares files with the round.
 
-9. Report each frontier round, with what it asked and what the person answered. Report what
-   was ruled instead and why, the rulings comment, the plan comment once approved, and what
-   housekeeping found.
+9. Report each frontier round, with what it asked and what the person answered. Report each
+   ruling you took instead of a question, and why. Report the rulings comment, the plan
+   comment once approved, and what housekeeping found.

@@ -438,16 +438,17 @@ Turns a sweep report into an approved plan.
 Before it asks anything, the skill explores each open item the sweep named. It reads the
 file and the record, then the guidance: installed package docs, official docs, community
 patterns. Then it searches for a recorded project deviation. A decision that the guidance
-or a record settles becomes a ruling with a citation, not a question. The skill also rules
-on a decision that is cheap to reverse, and records the argument for and against it.
+or a record settles becomes a ruling with a citation, not a question.
 
-What is left forms a design tree. Each round asks the frontier: each decision whose
-prerequisites are settled. It uses `AskUserQuestion`, with at most four questions for each
-call. The recommended option comes first, with the argument against it. Then the skill
-computes the frontier again. The phase ends when the frontier is empty.
+What is left forms a design tree. The frontier is each open decision whose prerequisites are
+settled. Before each round, the skill rules on each frontier decision that is cheap to
+reverse. The round asks the rest through
+`AskUserQuestion`, with at most four questions for each call. The recommended option comes
+first, with the argument against it. Then the skill computes the frontier again. The phase
+ends when the frontier is empty.
 
-The skill records both kinds of ruling in one rulings comment, on every issue in the round. It
-then enters plan mode itself and writes the plan. `ExitPlanMode` is the approval,
+The skill records every ruling in one comment, on each issue in the round and each issue a ruling
+touches. It then enters plan mode itself and writes the plan. `ExitPlanMode` is the approval,
 not a hand-back. `skills/stream/brief.md` is the template the plan feeds, so the plan
 answers what that template needs. Each layer in the plan fits one agent's budget. The
 plan splits a layer that does not fit into more layers, never into slices by hand. The stream
