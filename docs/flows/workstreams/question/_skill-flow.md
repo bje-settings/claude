@@ -4,7 +4,7 @@ description: What the /workstreams:question skill does, and every way it decline
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-11-02
+  at: 2026-11-11
 ---
 
 # /workstreams:question skill flow
@@ -18,15 +18,26 @@ flowchart TD
     C -->|No| C2([Stop: say there is no sequencing comment]):::stop
     C1 --> D
 
-    D[Open the file, the record, or the docs an open item names]
-    D --> E{answer already in the tree?}
-    E -->|Yes| E1[Record it as a ruling, with a citation] --> H
-    E -->|No| F{genuinely the human's to decide?}
-    F -->|No, cheap to reverse| E1
-    F -->|Yes| G[AskUserQuestion: recommendation first, argument against, 2-4 options]
-    G --> H{another open item?}
+    D[For each open item: open the file and the record;<br/>look up the guidance: installed package docs,<br/>then official docs, then community patterns]
+    D --> D1[Search for a recorded deviation:<br/>a code comment, a context file, an ADR or an RFC]
+    D1 --> E{which case?}
+    E -->|answer already in the tree, follows the guidance,<br/>or deviates with a recorded reason| E1[Record it as a ruling, with a citation] --> H
+    E -->|deviates with no record,<br/>or the sources disagree| T[Put the question in the design tree]
+    E -->|genuinely the person's call| T
+    T --> H{another open item?}
     H -->|Yes| D
-    H -->|No| I[Rulings comment on every issue in the round<br/>and any issue a ruling touches]
+    H -->|No| FR[Compute the frontier: each open decision<br/>whose prerequisites are settled]
+    FR --> FE{frontier empty?}
+    FE -->|No| F{cheap to reverse?}
+    F -->|Yes| F1[Record a ruling; it leaves the frontier] --> FR
+    F -->|No| XF{a fact would fill the context?}
+    XF -->|Yes| X[Explore subagent finds it;<br/>only the questions that wait on it wait] --> D
+    XF -->|No: read a short fact yourself;<br/>or the rest of the frontier| G[AskUserQuestion: at most 4 questions for each call,<br/>more calls in the same round; recommendation first,<br/>argument against, 2-4 options]
+    G -->|an answer opens a new decision| D
+    G -->|answers in| FR
+    FE -->|Yes| FL{a lookup still runs?}
+    FL -->|Yes| FW[Wait for the Explore result] --> D
+    FL -->|No| I[Rulings comment on every issue in the round<br/>and any issue a ruling touches]
 
     I --> J[EnterPlanMode: write the plan;<br/>each layer fits one agent's budget, else split into more layers;<br/>one worktree for the stream]
     J --> K{ExitPlanMode: approved?}
@@ -48,7 +59,7 @@ flowchart TD
     W -->|Yes| W1[Comment on each issue: name the layer;<br/>merge the layer below, retarget, then CI runs] --> P
     P[Note any open pull request that shares files]
 
-    P --> Q([Report: what was asked, what was ruled,<br/>the two comments, housekeeping])
+    P --> Q([Report: what each frontier round asked and answered,<br/>the rulings, the two comments, housekeeping])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
