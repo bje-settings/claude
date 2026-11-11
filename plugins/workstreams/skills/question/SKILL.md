@@ -44,8 +44,9 @@ reaches step 3 and cannot ask.
    decisions that depend on it. The frontier is each decision whose prerequisites are
    settled.
 
-   Ask only what is genuinely the person's to decide. That is scope, shape, names that ship,
-   what proves an acceptance line true, and order against other efforts. Shape is the layer
+   Ask only the step 2 questions, and what is genuinely the person's to decide. The person
+   decides scope, shape, names that ship, what proves an acceptance line true, and order
+   against other efforts. Shape is the layer
    count, and one pull request or a stack. The shape question states the review cost of each
    extra layer or pull request, from the sweep's size estimate.
 

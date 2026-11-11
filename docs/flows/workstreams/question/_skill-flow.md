@@ -21,7 +21,7 @@ flowchart TD
     D[For each open item: open the file and the record;<br/>look up the guidance: installed package docs,<br/>then official docs, then community patterns]
     D --> D1[Search for a recorded deviation:<br/>a code comment, a context file, an ADR or an RFC]
     D1 --> E{which case?}
-    E -->|follows the guidance,<br/>or deviates with a recorded reason| E1[Record it as a ruling, with a citation] --> H
+    E -->|answer already in the tree, follows the guidance,<br/>or deviates with a recorded reason| E1[Record it as a ruling, with a citation] --> H
     E -->|deviates with no record,<br/>or the sources disagree| T[Put the question in the design tree]
     E -->|genuinely the person's call| T
     T --> H{another open item?}
@@ -30,8 +30,9 @@ flowchart TD
     FR --> FE{frontier empty, and no lookup still runs?}
     FE -->|No| F{cheap to reverse?}
     F -->|Yes| F1[Record a ruling; it leaves the frontier] --> FR
-    F -->|No| G[AskUserQuestion: at most 4 questions for each call,<br/>more calls in the same round; recommendation first,<br/>argument against, 2-4 options]
-    G -->|a fact would fill the context| X[Explore subagent finds it;<br/>only the questions that wait on it wait] --> D1
+    F -->|No| XF{a fact would fill the context?}
+    XF -->|Yes| X[Explore subagent finds it;<br/>only the questions that wait on it wait] --> D1
+    XF -->|No, or the rest of the frontier| G[AskUserQuestion: at most 4 questions for each call,<br/>more calls in the same round; recommendation first,<br/>argument against, 2-4 options]
     G -->|answers in| FR
     FE -->|Yes| I[Rulings comment on every issue in the round<br/>and any issue a ruling touches]
 
