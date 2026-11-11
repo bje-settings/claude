@@ -1,6 +1,6 @@
 ---
 name: question
-description: Turn a sweep report into an approved plan, one question at a time.
+description: Turn a sweep report into an approved plan. Look up the guidance for each open item, then ask the open decisions in frontier rounds.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob EnterPlanMode ExitPlanMode
 user-invocable: false
 ---
@@ -15,24 +15,60 @@ reaches step 3 and cannot ask.
 
 1. Read the sequencing comment the sweep posted. If there is none, say so, and stop.
 
-2. Explore before you ask. For every open item the sweep names, open the file, the
-   record (`docs/rfc`, `docs/adr`, the repository's own rules), or the docs it turns on.
-   Say what they say. Grep for the claim. Do not recall it. A question whose answer is
-   already in the tree is not a question. It is a ruling with a citation, and it goes in
-   step 4.
+2. Explore before you ask. For every open item the sweep names, open the file and the
+   record (`docs/rfc`, `docs/adr`, the repository's own rules). Say what they say. Grep for
+   the claim. Do not recall it.
 
-3. Ask one question at a time. Ask only what is genuinely the human's to decide: scope,
-   shape (layer count, one pull request or a stack), names that ship, what proves an
-   acceptance line true, order against other efforts. The shape question states the review
-   cost of each extra layer or pull request, from the sweep's size estimate.
+   For every open item, look up the canonical guidance on what it turns on, in this order:
 
-   Use `AskUserQuestion`: one question, two to four options, the recommended option
-   first and labelled, with the argument against it in its own description. Wait for
-   the answer before you ask the next one.
+   - The installed package docs, for example `node_modules/<pkg>/docs` or a package's
+     `AGENTS.md`. They match the version in use.
+   - The official docs, fetched fresh.
+   - The established community patterns.
 
-4. Take the rulings that are cheap to reverse, rather than ask: anything the human
-   could reverse in one word, if they disagreed. Record each one with what was chosen,
-   and the argument for and against it, so the reversal costs nothing.
+   Then search for a recorded project deviation. Look for a code comment at the site, a
+   context file (`CLAUDE.md`, a path-scoped rule), an ADR or an RFC. Then sort the item:
+
+   - The guidance applies, and the project follows it: a ruling that cites the guidance.
+   - The project deviates, and a record gives the reason: a ruling that cites the record.
+   - The project deviates with no recorded reason, or two canonical sources disagree: a
+     question. Its options cite the guidance and the deviation.
+   - The decision is genuinely the person's (step 3): a question.
+
+   Each ruling and each question cites its source. A question's description says what the
+   guidance recommends, and the recommended option follows the guidance. A question whose
+   answer is already in the tree is not a question. It is a ruling with a citation, and it
+   goes in step 4. A decision that this step settles never enters the frontier.
+
+3. Build a design tree from the decisions that are left. Each decision branches into the
+   decisions that depend on it. The frontier is each decision whose prerequisites are
+   settled.
+
+   Ask only what is genuinely the person's to decide. That is scope, shape, names that ship,
+   what proves an acceptance line true, and order against other efforts. Shape is the layer
+   count, and one pull request or a stack. The shape question states the review cost of each
+   extra layer or pull request, from the sweep's size estimate.
+
+   Ask the whole frontier in each round. Use `AskUserQuestion`, with at most four questions
+   in each call. A larger frontier takes more calls in the same round.
+
+   Each question has two to four options, with the recommended option first and labelled.
+   The argument against it goes in its own description. A question that depends on another
+   question still open in this round goes to a later round. After the answers, compute the
+   frontier again.
+
+   Facts are your work, never the person's. Read a short fact yourself. For a fact that
+   would fill the context, dispatch an `Explore` subagent. Ask the rest of the frontier while
+   it runs. Only the questions that wait on that fact wait. Put its result through step 2
+   before the next round.
+
+   The phase is done when the frontier is empty. Each branch then has a visit, and no
+   decision stays a silent assumption. A lookup that still runs keeps the frontier open.
+
+4. Take the rulings that are cheap to reverse, rather than ask. Such a ruling is one that
+   the person could reverse in one word. Record each one with what was chosen, and the
+   argument for and against it, so the reversal costs nothing. A ruling takes its decision
+   out of the frontier.
 
 5. Post the rulings comment: one comment, on every issue in the round and on any issue a
    ruling touches. Number each ruling. End it:
@@ -42,8 +78,8 @@ reaches step 3 and cannot ask.
    ```
 
 6. Enter plan mode yourself (`EnterPlanMode`), and write the plan in the shape
-   [plan-shape.md](plan-shape.md) sets out. `ExitPlanMode` is the approval. The human
-   approves or edits the plan there.
+   [plan-shape.md](plan-shape.md) sets out. `ExitPlanMode` is the approval, and the person's
+   confirmation of the shared understanding. The human approves or edits the plan there.
 
 7. After approval, check the round's issues once more:
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds --all --issues <n,n> --json`.
@@ -87,5 +123,6 @@ reaches step 3 and cannot ask.
 
    Note any open pull request of another effort that shares files with the round.
 
-9. Report what was asked and answered, what was ruled instead and why, the rulings comment,
-   the plan comment once approved, and what housekeeping found.
+9. Report each frontier round, with what it asked and what the person answered. Report what
+   was ruled instead and why, the rulings comment, the plan comment once approved, and what
+   housekeeping found.
