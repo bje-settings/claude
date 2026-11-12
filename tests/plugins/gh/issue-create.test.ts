@@ -69,6 +69,11 @@ describe('commandsOf', () => {
       ['gh', 'issue', 'create'],
       ['b'],
     ])
+    expect(commandsOf('cat <<A\nx; y\nA\necho <<B\nlast')).toEqual([
+      ['cat', '<<A'],
+      ['echo', '<<B'],
+      ['last'],
+    ])
   })
 
   it('gives no command for an empty line', () => {
