@@ -611,3 +611,139 @@ test('after the prompt hint draws, the plain pin is cleared and later reports do
   expect(seen.statuses.length).toBe(3)
   await ui.unmount()
 })
+
+/** The answer of the issue-types read: a list with a type, or an empty one. */
+const TYPES = ran('[{"name":"Bug","description":"A defect"}]\n')
+const NO_TYPES = ran('[]\n')
+
+/**
+ * Stub the engine, and answer a `gh` run, the types read, with `types`.
+ * Any other run is a status check with a clean report.
+ */
+const stubTypes = (
+  on: On,
+  types: (index: number) => ProcessRunResult,
+  stubs?: Stubs,
+): ReturnType<typeof stub> => {
+  const stubbed: ReturnType<typeof stub> = stub(
+    on,
+    (index) => (stubbed.seen.runs[index]?.[0] === 'gh' ? types(index) : ran(report())),
+    stubs,
+  )
+  return stubbed
+}
+
+/** The runs that read the issue types. */
+const typesRuns = (seen: Seen): (readonly string[])[] =>
+  seen.runs.filter((argv) => argv[0] === 'gh')
+
+test('gh issue create with no --type is denied when the repository has types', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => TYPES)
+
+  const result = await $.tool.call({ tool: 'Bash', command: 'gh issue create --title "t"' })
+  await clock.settle()
+
+  expect(result.deny).toContain('gh:issues')
+  expect(typesRuns(seen).length).toBe(1)
+  expect(typesRuns(seen)[0]?.slice(0, 3)).toEqual(['gh', 'api', 'graphql'])
+  expect(seen.inits[0]).toEqual({ cwd: CWD, timeoutMs: 5_000 })
+  // A denied call does not refresh the row.
+  expect(seen.runs.length).toBe(1)
+})
+
+test('an empty --type is denied, a --type with a value passes with no read', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => TYPES)
+
+  expect((await $.tool.call({ tool: 'Bash', command: 'gh issue create --type=' })).deny).toBeDefined()
+  seen.runs.length = 0
+  const bug = await $.tool.call({ tool: 'Bash', command: 'gh issue create --type Bug' })
+  const task = await $.tool.call({ tool: 'Bash', command: 'gh issue create --type=Task' })
+  await clock.settle()
+
+  expect(bug.deny).toBeUndefined()
+  expect(task.deny).toBeUndefined()
+  expect(typesRuns(seen)).toEqual([])
+})
+
+test('a repository with no types passes', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => NO_TYPES)
+
+  const result = await $.tool.call({ tool: 'Bash', command: 'gh issue create --title "t"' })
+  await clock.settle()
+
+  expect(result.deny).toBeUndefined()
+  expect(typesRuns(seen).length).toBe(1)
+})
+
+test('a read that fails, rejects, or gives no list passes', async ($, on) => {
+  const { clock } = stubTypes(on, (index) => {
+    if (index === 0) return ran('', 1, 'HTTP 502')
+    if (index === 1) return ran('no json')
+    throw new Error('timed out')
+  })
+
+  for (const repo of ['a/one', 'a/two', 'a/three']) {
+    const result = await $.tool.call({ tool: 'Bash', command: `gh issue create -R ${repo}` })
+    expect(result.deny).toBeUndefined()
+  }
+  await clock.settle()
+})
+
+test('a session directory that cannot be read passes', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => TYPES, {
+    cwd: () => {
+      throw new Error('no directory')
+    },
+  })
+
+  const result = await $.tool.call({ tool: 'Bash', command: 'gh issue create' })
+  await clock.settle()
+
+  expect(result.deny).toBeUndefined()
+  expect(typesRuns(seen)).toEqual([])
+})
+
+test('two creates in one repository share one read, and one repository has its own', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => TYPES)
+
+  const both = await $.tool.call({
+    tool: 'Bash',
+    command: 'gh issue create --type Bug && gh issue create -R a/b --title x',
+  })
+  const again = await $.tool.call({ tool: 'Bash', command: 'gh issue create --repo=a/b' })
+  const here = await $.tool.call({ tool: 'Bash', command: 'gh issue create' })
+  const hereAgain = await $.tool.call({ tool: 'Bash', command: 'gh issue create' })
+  await clock.settle()
+
+  expect([both.deny, again.deny, here.deny, hereAgain.deny].map((deny) => deny !== undefined)).toEqual([
+    true,
+    true,
+    true,
+    true,
+  ])
+  const reads = typesRuns(seen)
+  expect(reads.length).toBe(2)
+  expect(reads[0]?.slice(4, 7)).toEqual(['owner=a', '-F', 'repo=b'])
+  expect(reads[1]?.slice(4, 7)).toEqual(['owner={owner}', '-F', 'repo={repo}'])
+})
+
+test('a command that is not gh issue create reads nothing', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => TYPES)
+
+  await $.tool.call({ tool: 'Bash', command: 'gh issue list' })
+  await $.tool.call({ tool: 'Bash', command: 'echo "gh issue create"' })
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await clock.settle()
+
+  expect(typesRuns(seen)).toEqual([])
+})
+
+test('a gh issue create that passes refreshes the row after it runs', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => NO_TYPES)
+
+  await $.tool.call({ tool: 'Bash', command: 'gh issue create --title t' })
+  await clock.settle()
+
+  // The types read, then the status check.
+  expect(seen.runs.map((argv) => argv[0])).toEqual(['gh', 'node'])
+})

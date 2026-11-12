@@ -227,6 +227,30 @@ failure's message, up to its first sentence end, at most 80 characters.
 
 The check writes each failure in full to stderr, one line for each failure, with its repository.
 
+## Issue type guard
+
+The hooks module refuses a `gh issue create` that has no `--type`, when the repository defines
+issue types. The reason names `gh:issues` and tells the model to create the issue through it.
+The skill sets the type and the priority. A direct `gh issue create` sets neither.
+
+A call is refused when any `gh issue create` in the command has no `--type` value. `--type Bug`
+and `--type=Bug` pass. `--type ""` and `--type=` do not. The module splits the command on `&&`,
+`||`, `;`, `|` and newlines outside quotes. It is not a full shell parser. A wrapper script, or
+an issue that `gh api` creates, is not checked.
+
+A call passes in each of these cases:
+
+- The command has no `gh issue create`. The module reads nothing.
+- Each `gh issue create` has a `--type` value.
+- The repository defines no issue type.
+- The read of the issue types fails or takes more than 5 seconds. The guard fails open.
+
+The module reads the types with the query in
+[`skills/issues/format.md`](skills/issues/format.md), once for each repository in a session. The
+repository is the `-R` or `--repo` value, or the session's directory. The answer stays in memory
+for the session. It is never written to disk. A failed read is also kept, so no later create
+waits for a second read.
+
 ## Session start hook
 
 The plugin needs git and the GitHub CLI. When a session starts, resumes, clears, or compacts, the

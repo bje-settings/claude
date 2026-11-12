@@ -1,5 +1,5 @@
 {
-  "description": "The SessionStart command hook checks that git and the GitHub CLI are on PATH. It names each tool that is not. The hooks module draws the repo status row under the prompt. The row shows commits behind, branches to prune, open pull requests, dependency pull requests and Dependabot alerts. The module writes the problems to the transcript. It refreshes the row on a timer and after a git, gh or sync command. The check fetches, but never changes a branch, worktree, or working tree.",
+  "description": "The SessionStart command hook checks that git and the GitHub CLI are on PATH. It names each tool that is not. The hooks module draws the repo status row under the prompt. The row shows commits behind, branches to prune, open pull requests, dependency pull requests and Dependabot alerts. The module writes the problems to the transcript. It refreshes the row on a timer and after a git, gh or sync command. The check fetches, but never changes a branch, worktree, or working tree. The module also refuses a gh issue create with no --type in a repository that has issue types.",
   "modules": ["./register.ts"],
   "hooks": {
     "SessionStart": [
