@@ -19,7 +19,8 @@
 //
 // The module imports no `node:` module and no `src/lib/` copy (ADR 007,
 // ruling 6). Its decisions are in `src/status-pin.ts` and
-// `src/issue-create.ts`, which vitest measures. A helper that takes `$` is a `function` declaration.
+// `src/issue-create.ts`, which vitest measures. A helper that takes `$` is a
+// `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 import {
