@@ -69,8 +69,9 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-A hook of the gh plugin refuses a direct `gh issue create` with no `--type` when the repository
-has issue types. The create step of this flow gives `--type` in that case, so the hook passes it.
+The hooks module of the gh plugin refuses a direct `gh issue create` with no `--type` when the
+repository has issue types. The create step of this flow sets `--type` in that case, so the
+module lets it through.
 
 The owner rule applies to each issue and to each duplicate comment that the skill reports.
 The skill compares owner names only. Text for a different owner names none of the details of

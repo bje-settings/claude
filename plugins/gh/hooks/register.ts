@@ -18,8 +18,8 @@
 // through.
 //
 // The module imports no `node:` module and no `src/lib/` copy (ADR 007,
-// ruling 6). Its decisions are in `src/status-pin.ts`, which vitest
-// measures. A helper that takes `$` is a `function` declaration.
+// ruling 6). Its decisions are in `src/status-pin.ts` and
+// `src/issue-create.ts`, which vitest measures. A helper that takes `$` is a `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 import {
@@ -145,9 +145,11 @@ async function refreshHere($: EngineInterface, pin: Pin): Promise<void> {
 
 /**
  * What the repository defines. The first call for a repository starts the
- * read, and each later call shares its answer. `repo` is the `-R` value, or
- * `undefined` for the session's directory. A read that fails or times out
- * is `unknown`, and stays so for the session: no second read delays a call.
+ * read, and each later call shares its answer. `repo` is the `-R` or
+ * `--repo` value, or `undefined` for the session's directory. A read that
+ * fails or times out is `unknown`, and stays so for the session: no second
+ * read delays a call. A directory that cannot be read is `unknown`, and is
+ * not kept.
  */
 async function readTypes(
   $: EngineInterface,
@@ -220,7 +222,7 @@ export const register: Register = (on) => {
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    // A command with no `gh issue create` reads nothing.
+    // A command with no `gh issue create` that lacks a `--type` reads nothing.
     for (const { repo } of untypedCreates(e.command)) {
       if ((await readTypes($, typesCache, repo)) === 'types') return { deny: DENY_REASON }
     }
