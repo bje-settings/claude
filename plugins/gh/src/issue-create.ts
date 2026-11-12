@@ -17,7 +17,8 @@ export const DENY_REASON =
 const TYPES_QUERY =
   'query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){issueTypes(first:20){nodes{name description}}}}'
 
-/** An `--type` read: what the repository defines, as the read answers it. */
+/** The answer of an issue-types read: `types` (one or more), `none`, or
+ *  `unknown` (the read failed or gave no list). */
 export type Types = 'types' | 'none' | 'unknown'
 
 /** One `gh issue create` that has no `--type` value. */
@@ -35,29 +36,36 @@ const TOKEN =
 /** The start of a here-document: `<<`, `<<-`, and the delimiter word. */
 const HEREDOC = /(?<!<)<<-?\s*(['"]?)([A-Za-z_]\w*)\1/
 
-/** The last two parts of a repository, `owner/name`. A host may come before. */
-const OWNER_NAME = /([^/]+)\/([^/]+)$/
+/** A repository, `owner/name`, with an optional host before it. */
+const REPOSITORY = /^(?:([^/]+)\/)?([^/]+)\/([^/]+)$/
+
+/** The names of `gh issue create`. */
+const CREATE: ReadonlySet<string | undefined> = new Set(['create', 'new'])
 
 /** A `VAR=value` word before the command. */
 const ASSIGNMENT = /^[A-Za-z_]\w*=/
 
-/** The flags that take the next word as their value, before the subcommand. */
+/** The repository flags. The word after one is its value, not a subcommand. */
 const REPO_FLAGS: ReadonlySet<string | undefined> = new Set(['-R', '--repo'])
 
-/** The command with the body of each here-document taken out. The body is
- *  text, and a quote in it must not hide the lines after it. */
+/** The command with the body of the first here-document on each line taken
+ *  out. The body is text, and a quote in it must not hide the lines after
+ *  it. A body with no end line stays, so that it hides no command. */
 const withoutHeredocBodies = (command: string): string => {
   const kept: string[] = []
+  let body: string[] = []
   let end: string | undefined
   for (const line of command.split('\n')) {
     if (end !== undefined) {
       if (line.trim() === end) end = undefined
+      else body.push(line)
       continue
     }
     kept.push(line)
+    body = []
     end = HEREDOC.exec(line)?.[2]
   }
-  return kept.join('\n')
+  return [...kept, ...(end === undefined ? [] : body)].join('\n')
 }
 
 /**
@@ -90,8 +98,9 @@ export const commandsOf = (command: string): string[][] => {
   return commands
 }
 
-/** True when the words run `gh issue create`. The words may start with
- *  assignments, and `-R <repo>` or other flags may come before `issue`. */
+/** True when the words run `gh issue create`, or its alias `gh issue new`.
+ *  The words may start with assignments. Flags with no value, and `-R <repo>`,
+ *  may come before `issue`. */
 const runsCreate = (words: readonly string[]): boolean => {
   const start = words.findIndex((word) => !ASSIGNMENT.test(word))
   const [gh, ...args] = words.slice(start)
@@ -99,11 +108,13 @@ const runsCreate = (words: readonly string[]): boolean => {
   const subcommands = args.filter(
     (word, index) => !word.startsWith('-') && !REPO_FLAGS.has(previous[index]),
   )
-  return gh === 'gh' && subcommands[0] === 'issue' && subcommands[1] === 'create'
+  return gh === 'gh' && subcommands[0] === 'issue' && CREATE.has(subcommands[1])
 }
 
-/** The value of `--<name> v` or `--<name>=v`, or of `short v`. The last one
- *  wins. A flag with no word after it has an empty value. */
+/** The value of `--<name> v` or `--<name>=v`, or of `short v`, `short=v` or
+ *  `shortv`. The last one wins. The next word is the value, also when it is a
+ *  flag. A flag with no word after it has an empty value. `undefined` when
+ *  the flag is absent. */
 const flagValue = (
   words: readonly string[],
   name: string,
@@ -113,13 +124,15 @@ const flagValue = (
   words.forEach((word, index) => {
     if (word === `--${name}` || word === short) found = words[index + 1] ?? ''
     else if (word.startsWith(`--${name}=`)) found = word.slice(name.length + 3)
+    else if (short !== undefined && word.startsWith(short))
+      found = word.slice(short.length).replace(/^=/, '')
   })
   return found
 }
 
 /**
- * Each `gh issue create` of a Bash command that has no non-empty `--type`,
- * with its repository. A command with no such part gives an empty list.
+ * Each `gh issue create` of a Bash command that has no `--type` value, or a
+ * blank one, with its repository. The list is empty when no such part exists.
  */
 export const untypedCreates = (command: string): Untyped[] =>
   commandsOf(command)
@@ -129,19 +142,27 @@ export const untypedCreates = (command: string): Untyped[] =>
 
 /**
  * The argv that reads the issue types of a repository: the query of
- * `format.md`. With no `repo`, `gh` takes the repository of the directory
- * that it runs in. A `repo` is `owner/name`, with an optional host before it.
+ * `format.md`. With no `repo`, `gh` fills `{owner}` and `{repo}` from the
+ * directory that it runs in. A `repo` is `[host/]owner/name`. Its parts go
+ * with `-f`, which keeps a name such as `123` a string.
  */
 export const typesArgv = (repo: string | undefined): string[] => {
-  const [, owner = '', name = ''] = repo === undefined ? [] : (OWNER_NAME.exec(repo) ?? [])
+  const [, host, owner = '', name = ''] = repo === undefined ? [] : (REPOSITORY.exec(repo) ?? [])
+  const fields =
+    repo === undefined
+      ? ['-F', 'owner={owner}', '-F', 'repo={repo}']
+      : [
+          ...(host === undefined ? [] : ['--hostname', host]),
+          '-f',
+          `owner=${owner}`,
+          '-f',
+          `repo=${name}`,
+        ]
   return [
     'gh',
     'api',
     'graphql',
-    '-F',
-    `owner=${repo === undefined ? '{owner}' : owner}`,
-    '-F',
-    `repo=${repo === undefined ? '{repo}' : name}`,
+    ...fields,
     '-f',
     `query=${TYPES_QUERY}`,
     '--jq',

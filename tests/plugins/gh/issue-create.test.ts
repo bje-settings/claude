@@ -14,9 +14,11 @@ import {
 } from '#gh/issue-create.ts'
 
 /** The command of `skills/issues/create.md`, step 7, with each
- *  placeholder filled. */
+ *  placeholder filled. The body splits into a `gh issue create` with no
+ *  `--type` when its lines stay in. */
 const SKILL_COMMAND = `gh issue create --title "feat(gh): add a thing" --body-file - --type "Feature" --label "gh" --milestone "v1" --blocked-by 3,4 --blocking 5 --parent 2 <<'EOF'
-Don't split on this line && gh issue create
+Line one; gh issue create
+It's text.
 EOF`
 
 describe('commandsOf', () => {
@@ -61,6 +63,14 @@ describe('commandsOf', () => {
     ])
   })
 
+  it('keeps the lines after a here-document with no end line', () => {
+    expect(commandsOf('echo "<<EOF"\ngh issue create\nb')).toEqual([
+      ['echo', '<<EOF'],
+      ['gh', 'issue', 'create'],
+      ['b'],
+    ])
+  })
+
   it('gives no command for an empty line', () => {
     expect(commandsOf('')).toEqual([])
     expect(commandsOf(' ; \n ')).toEqual([])
@@ -90,6 +100,22 @@ describe('untypedCreates', () => {
     expect(untypedCreates('gh --repo o/r issue create')).toEqual([{ repo: 'o/r' }])
     expect(untypedCreates('gh issue create --repo=o/r')).toEqual([{ repo: 'o/r' }])
     expect(untypedCreates('gh issue create --repo=')).toEqual([{ repo: undefined }])
+  })
+
+  it('reads -R with its value in the same word', () => {
+    expect(untypedCreates('gh issue create -Ro/r')).toEqual([{ repo: 'o/r' }])
+    expect(untypedCreates('gh issue create -R=o/r')).toEqual([{ repo: 'o/r' }])
+    expect(untypedCreates('gh issue create -R=')).toEqual([{ repo: undefined }])
+  })
+
+  it('takes the last --type', () => {
+    expect(untypedCreates('gh issue create --type Bug --type ""')).toEqual([{ repo: undefined }])
+    expect(untypedCreates('gh issue create --type "" --type=Bug')).toEqual([])
+  })
+
+  it('checks the alias gh issue new', () => {
+    expect(untypedCreates('gh issue new --title t')).toEqual([{ repo: undefined }])
+    expect(untypedCreates('gh issue new --type Bug')).toEqual([])
   })
 
   it('allows assignments and other flags before the command', () => {
@@ -149,13 +175,24 @@ describe('typesArgv', () => {
     expect(argv.some((word) => word.includes('issueTypes(first:20)'))).toBe(true)
   })
 
-  it('reads the owner and name of a repository, with or without a host', () => {
-    expect(typesArgv('o/r').slice(4, 7)).toEqual(['owner=o', '-F', 'repo=r'])
-    expect(typesArgv('github.com/o/r').slice(4, 7)).toEqual(['owner=o', '-F', 'repo=r'])
+  it('sends the owner and name of a repository as strings', () => {
+    expect(typesArgv('o/123').slice(3, 7)).toEqual(['-f', 'owner=o', '-f', 'repo=123'])
+  })
+
+  it('sends the host of a repository to gh', () => {
+    expect(typesArgv('ghe.example.com/o/r').slice(3, 9)).toEqual([
+      '--hostname',
+      'ghe.example.com',
+      '-f',
+      'owner=o',
+      '-f',
+      'repo=r',
+    ])
   })
 
   it('gives an empty owner and name for text that is no repository', () => {
-    expect(typesArgv('solo').slice(4, 7)).toEqual(['owner=', '-F', 'repo='])
+    expect(typesArgv('solo').slice(3, 7)).toEqual(['-f', 'owner=', '-f', 'repo='])
+    expect(typesArgv('a/b/c/d').slice(3, 7)).toEqual(['-f', 'owner=', '-f', 'repo='])
   })
 })
 
