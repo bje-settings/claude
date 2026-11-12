@@ -47,6 +47,8 @@ interface Seen {
   readonly statuses: (string | undefined)[]
   /** The text of each `ui.log` call. */
   readonly logs: string[]
+  /** The tool of each call that reaches the engine's tool. */
+  readonly tools: string[]
 }
 
 /** How the stubs answer, past the result of each run. */
@@ -70,11 +72,14 @@ const stub = (
   { delayMs = 0, deny, cwd = () => CWD }: Stubs = {},
 ): { seen: Seen; clock: ReturnType<typeof mock.clock> } => {
   const clock = mock.clock(on)
-  const seen: Seen = { runs: [], inits: [], statuses: [], logs: [] }
+  const seen: Seen = { runs: [], inits: [], statuses: [], logs: [], tools: [] }
   let cwdCalls = 0
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: cwd(cwdCalls++) }))
-  on('tool.call', () => (deny === undefined ? { result: {} } : { deny }))
+  on('tool.call', (_, e) => {
+    seen.tools.push(e.tool)
+    return deny === undefined ? { result: {} } : { deny }
+  })
   on('process.run', async (_, e) => {
     const index = seen.runs.length
     seen.runs.push(e.argv)
@@ -622,12 +627,15 @@ const NO_TYPES = ran('[]\n')
  */
 const stubTypes = (
   on: On,
-  types: (index: number) => ProcessRunResult,
+  types: (index: number, argv: readonly string[]) => ProcessRunResult,
   stubs?: Stubs,
 ): ReturnType<typeof stub> => {
   const stubbed: ReturnType<typeof stub> = stub(
     on,
-    (index) => (stubbed.seen.runs[index]?.[0] === 'gh' ? types(index) : ran(report())),
+    (index) => {
+      const argv = stubbed.seen.runs[index] ?? []
+      return argv[0] === 'gh' ? types(index, argv) : ran(report())
+    },
     stubs,
   )
   return stubbed
@@ -647,22 +655,24 @@ test('gh issue create with no --type is denied when the repository has types', a
   expect(typesRuns(seen).length).toBe(1)
   expect(typesRuns(seen)[0]?.slice(0, 3)).toEqual(['gh', 'api', 'graphql'])
   expect(seen.inits[0]).toEqual({ cwd: CWD, timeoutMs: 5_000 })
-  // A denied call does not refresh the row.
+  // A denied call does not run, and does not refresh the row.
+  expect(seen.tools).toEqual([])
   expect(seen.runs.length).toBe(1)
 })
 
 test('an empty --type is denied, a --type with a value passes with no read', async ($, on) => {
   const { seen, clock } = stubTypes(on, () => TYPES)
 
-  expect((await $.tool.call({ tool: 'Bash', command: 'gh issue create --type=' })).deny).toBeDefined()
-  seen.runs.length = 0
   const bug = await $.tool.call({ tool: 'Bash', command: 'gh issue create --type Bug' })
   const task = await $.tool.call({ tool: 'Bash', command: 'gh issue create --type=Task' })
+  expect(typesRuns(seen)).toEqual([])
+  const empty = await $.tool.call({ tool: 'Bash', command: 'gh issue create --type=' })
   await clock.settle()
 
   expect(bug.deny).toBeUndefined()
   expect(task.deny).toBeUndefined()
-  expect(typesRuns(seen)).toEqual([])
+  expect(empty.deny).toBeDefined()
+  expect(seen.tools).toEqual(['Bash', 'Bash'])
 })
 
 test('a repository with no types passes', async ($, on) => {
@@ -687,6 +697,43 @@ test('a read that fails, rejects, or gives no list passes', async ($, on) => {
     expect(result.deny).toBeUndefined()
   }
   await clock.settle()
+})
+
+test('a read that fails is kept, and a second create in that repository does not read again', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => ran('', 1, 'HTTP 502'))
+
+  const first = await $.tool.call({ tool: 'Bash', command: 'gh issue create -R a/b' })
+  const second = await $.tool.call({ tool: 'Bash', command: 'gh issue create -R a/b' })
+  await clock.settle()
+
+  expect([first.deny, second.deny]).toEqual([undefined, undefined])
+  expect(typesRuns(seen).length).toBe(1)
+})
+
+test('two creates at the same time in one repository share one read', async ($, on) => {
+  const { seen, clock } = stubTypes(on, () => TYPES)
+
+  const results = await Promise.all([
+    $.tool.call({ tool: 'Bash', command: 'gh issue create -R a/b' }),
+    $.tool.call({ tool: 'Bash', command: 'gh issue create -R a/b' }),
+  ])
+  await clock.settle()
+
+  expect(results.map((result) => result.deny !== undefined)).toEqual([true, true])
+  expect(typesRuns(seen).length).toBe(1)
+})
+
+test('a compound command is denied when a later create is in a repository with types', async ($, on) => {
+  const { seen, clock } = stubTypes(on, (_, argv) => (argv.includes('owner=has') ? TYPES : NO_TYPES))
+
+  const result = await $.tool.call({
+    tool: 'Bash',
+    command: 'gh issue create -R none/r && gh issue create -R has/r',
+  })
+  await clock.settle()
+
+  expect(result.deny).toContain('gh:issues')
+  expect(typesRuns(seen).length).toBe(2)
 })
 
 test('a session directory that cannot be read passes', async ($, on) => {
@@ -723,7 +770,7 @@ test('two creates in one repository share one read, and one repository has its o
   ])
   const reads = typesRuns(seen)
   expect(reads.length).toBe(2)
-  expect(reads[0]?.slice(4, 7)).toEqual(['owner=a', '-F', 'repo=b'])
+  expect(reads[0]?.slice(3, 7)).toEqual(['-f', 'owner=a', '-f', 'repo=b'])
   expect(reads[1]?.slice(4, 7)).toEqual(['owner={owner}', '-F', 'repo={repo}'])
 })
 
