@@ -451,15 +451,15 @@ not a hand-back. `skills/stream/brief.md` is the template the plan feeds, so the
 answers what that template needs. Each layer in the plan fits one agent's budget. The
 plan splits a layer that does not fit into more layers, never into slices by hand. The stream
 has one worktree until #263 (#380). Once approved, the plan comment goes on every issue in
-the round. Housekeeping then runs before the first worktree, with no question to the person: a
-fast-forward of the default branch (a dirty or diverged default branch is a stop, with its
-cause named), any ignored leftover under `plugins/`, and the `core.hooksPath` ruling when
-one was taken. The hook preflight itself runs before plan mode. When a local hook runs a
-full suite on every push, the repository's records either say CI is the enforcement
-boundary, and the rulings comment disables the hook for the round, or they are silent, and
-the per-push cost goes into one frontier question. `ExitPlanMode` is the last step that
-asks the person. The skill also reads each workflow's `pull_request` branch filter. When
-an upper layer's base gets no CI, it says so on the round's issues, with the order: merge
+the round. Housekeeping then runs before the first worktree. It asks the person nothing.
+It fast-forwards the default branch. A dirty or diverged default branch is a stop, and the
+skill names the cause. It removes any ignored leftover under `plugins/`. It applies the
+`core.hooksPath` ruling or answer, when there is one. The hook preflight runs before plan
+mode. When a local hook runs a full suite on every push, the records either say CI is the
+enforcement boundary or are silent. If they say so, the rulings comment disables the hook
+for the round. If they are silent, one frontier question states the per-push cost.
+`ExitPlanMode` is the last step that asks the person. The skill also reads each workflow's
+`pull_request` branch filter. When an upper layer's base gets no CI, it says so on the round's issues, with the order: merge
 the layer below, retarget, then CI runs (#383).
 
 It is `user-invocable: false`. `/workstreams:start` invokes it after a sweep.

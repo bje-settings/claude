@@ -4,7 +4,7 @@ description: What the /workstreams:question skill does, and every way it decline
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-11-11
+  at: 2026-11-12
 ---
 
 # /workstreams:question skill flow
@@ -28,8 +28,8 @@ flowchart TD
     H -->|Yes| D
     H -->|No| HK{a local hook runs a full suite on every push?}
     HK -->|No| FR
-    HK -->|Yes, records say CI is the boundary| HK1[Record a ruling: core.hooksPath at empty,<br/>applied in housekeeping] --> FR
-    HK -->|Yes, records silent| HK2[Put the question in the design tree] --> FR
+    HK -->|Yes, records say CI is the boundary| HK1[Record a ruling: core.hooksPath at /dev/null,<br/>applied in housekeeping] --> FR
+    HK -->|Yes, records silent| HK2[Put the question in the design tree;<br/>never ruled] --> FR
     FR[Compute the frontier: each open decision<br/>whose prerequisites are settled]
     FR --> FE{frontier empty?}
     FE -->|No| F{cheap to reverse?}
@@ -52,16 +52,16 @@ flowchart TD
 
     L --> M{default branch checked out in the root?}
     M -->|No| M1[git fetch origin default:default] --> M6
-    M -->|Yes| M3{uncommitted changes?}
+    M -->|Yes| M3{uncommitted tracked changes?}
     M3 -->|Yes| M4([Stop: name the dirty default branch]):::stop
     M3 -->|No| M5[git fetch origin, then merge --ff-only] --> M6
     M6{fast-forward refused?}
-    M6 -->|Yes| M7([Stop: name the diverged default branch]):::stop
+    M6 -->|Yes| M7([Stop: name the cause, quote git's message]):::stop
     M6 -->|No| M2
     M2[Remove ignored leftovers under plugins/] --> N
-    N{a ruling says CI is the boundary?}
+    N{a ruling or an answer disables the hook?}
     N -->|No| W
-    N -->|Yes| O1[Apply it: core.hooksPath at empty,<br/>no ask, restore at close] --> W
+    N -->|Yes| O1[Apply it: core.hooksPath at /dev/null,<br/>no ask, restore at close] --> W
     W{an upper layer's base that no<br/>pull_request CI filter matches?}
     W -->|No, or a GitHub stack runs it| P
     W -->|Yes| W1[Comment on each issue: name the layer;<br/>merge the layer below, retarget, then CI runs] --> P
@@ -73,7 +73,7 @@ flowchart TD
 ```
 
 The hook question is the one case in the whole skill where a cheap ruling is not taken,
-when the records are silent. It is asked in the frontier, before plan mode, so
-`ExitPlanMode` is the last step that asks the person. If you disable a push-time suite, you change what protects
-the round. So this question is asked, not ruled, even though it is, in every other
-sense, reversible.
+when the records are silent. It is asked in the frontier, before plan mode.
+So `ExitPlanMode` is the last step that asks the person.
+If you disable a push-time suite, you change what protects the round.
+So this question is asked, not ruled, even though it is, in every other sense, reversible.
