@@ -36,11 +36,9 @@ runs its commands. The hook checks the reviewers against the `agents/` directory
 every copy the registry records an install path for. A fork can satisfy the plugin row
 while it carries a different set of agents.
 
-`/workstreams:question` also uses the `gh` plugin, from any marketplace, when it is
-there. It asks the person to run `/gh:sync` before the first worktree. It reads
-its own skill listing to find out. When `gh` is not installed, the skill
-fast-forwards the default branch itself and continues. This is never a finding:
-`.claude/rules/_design-principles.md` says not to check an optional plugin.
+`/workstreams:question` does not use the `gh` plugin. `/gh:sync` sets
+`disable-model-invocation`, so no skill can run it. The skill fast-forwards the default
+branch itself, so a missing `gh` plugin is never a finding.
 
 ## Installing
 
@@ -453,12 +451,14 @@ not a hand-back. `skills/stream/brief.md` is the template the plan feeds, so the
 answers what that template needs. Each layer in the plan fits one agent's budget. The
 plan splits a layer that does not fit into more layers, never into slices by hand. The stream
 has one worktree until #263 (#380). Once approved, the plan comment goes on every issue in
-the round. Housekeeping then runs before the first worktree: `/gh:sync` when the `gh`
-plugin is present (otherwise the skill fast-forwards the default branch itself), any
-ignored leftover under `plugins/`, and a preflight for a local hook that runs a full
-suite on every push. That hook is disabled for the round only when the repository's own
-records say CI is the enforcement boundary. Otherwise the skill asks about it once, with
-the per-push cost stated. It also reads each workflow's `pull_request` branch filter. When
+the round. Housekeeping then runs before the first worktree, with no question to the person: a
+fast-forward of the default branch (a dirty or diverged default branch is a stop, with its
+cause named), any ignored leftover under `plugins/`, and the `core.hooksPath` ruling when
+one was taken. The hook preflight itself runs before plan mode. When a local hook runs a
+full suite on every push, the repository's records either say CI is the enforcement
+boundary, and the rulings comment disables the hook for the round, or they are silent, and
+the per-push cost goes into one frontier question. `ExitPlanMode` is the last step that
+asks the person. The skill also reads each workflow's `pull_request` branch filter. When
 an upper layer's base gets no CI, it says so on the round's issues, with the order: merge
 the layer below, retarget, then CI runs (#383).
 

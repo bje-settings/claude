@@ -1,7 +1,7 @@
 ---
 name: question
 description: Turn a sweep report into an approved plan. Look up the guidance for each open item, then ask about the open decisions in frontier rounds.
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob EnterPlanMode ExitPlanMode
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Bash(git -C * branch --show-current) Bash(git -C * status --porcelain) Bash(git -C * fetch origin*) Bash(git -C * merge --ff-only *) Bash(git -C * config core.hooksPath*) Read Grep Glob EnterPlanMode ExitPlanMode
 user-invocable: false
 ---
 
@@ -39,6 +39,16 @@ reaches step 3 and cannot ask.
    guidance recommends, and the recommended option follows the guidance. A question whose
    answer is already in the tree is not a question. It is a ruling with a citation, for the
    step 5 comment. A decision that this step settles never enters the frontier.
+
+   Also run the hook preflight, since a question from it belongs in the frontier. Does a
+   local hook run a full test suite on every push? Detect it from `core.hooksPath`,
+   `.githooks/`, `.husky/`, `lefthook.yml`, or `.pre-commit-config.yaml`. If one does:
+
+   - The repository's own records (its ADRs, its CI comments) say CI is the enforcement
+     boundary: a ruling that `core.hooksPath` points at an empty directory for the life of
+     the round. Step 8 applies it. This is a config change, never `--no-verify`.
+   - The records are silent: a question, with disabling the hook as the recommendation,
+     and the per-push cost stated.
 
 3. Build a design tree from the decisions that are left. Each decision branches into the
    decisions that depend on it. The frontier is each open decision whose prerequisites are
@@ -96,24 +106,24 @@ reaches step 3 and cannot ask.
    sections 3 and 4 say. Post it on every issue in the round, and end it with the same
    ``_Recorded by `workstreams:question` <date>._`` line.
 
-8. Housekeeping, before the first worktree.
+8. Housekeeping, before the first worktree. Nothing in it asks a question or ends the turn.
 
-   Read your own skill listing. If `/gh:sync` is in it, ask the person to run it.
-   If not, fast-forward the default branch yourself: `git -C <repository root> fetch
-   origin <default branch>:<default branch>`. This only ever fast-forwards a named
-   ref, and refuses otherwise; say so if it refuses. Then continue. Remove any ignored
+   Fast-forward the default branch in the repository root. `/gh:sync` sets
+   `disable-model-invocation`, so a skill cannot run it. Read the checked-out branch:
+   `git -C <repository root> branch --show-current`.
+
+   - Not the default branch: `git -C <repository root> fetch origin <default branch>:<default branch>`.
+     Git refuses to fetch into a checked-out branch, so this form is only for this case.
+   - The default branch: `git -C <repository root> status --porcelain` must print nothing.
+     Then run `git -C <repository root> fetch origin`, and
+     `git -C <repository root> merge --ff-only origin/<default branch>`.
+
+   Stop, and name the cause, when the checked-out default branch has uncommitted changes,
+   or when the fast-forward refuses because the branch diverged. Remove any ignored
    leftover under `plugins/` that a deletion left behind.
 
-   Then run the hook preflight, gated on one question: does a local hook run a full
-   test suite on every push? Detect it from `core.hooksPath`, `.githooks/`, `.husky/`,
-   `lefthook.yml`, or `.pre-commit-config.yaml`. If one does:
-
-   - When the repository's own records (its ADRs, its CI comments) say CI is the
-     enforcement boundary: propose that `core.hooksPath` point at an empty directory
-     for the life of the round, with the human present to approve it, and restore it
-     at close. This is a config change, never `--no-verify`.
-   - When the records do not say so: ask this one question, with disabling the hook as
-     the recommendation, and the per-push cost stated.
+   When a ruling says CI is the enforcement boundary, apply it now with no ask:
+   `git -C <repository root> config core.hooksPath <an empty directory>`. Restore it at close.
 
    Read each CI workflow's `pull_request` filter: Grep `.github/workflows/` in the root
    checkout for `pull_request`, and the `branches` or `branches-ignore` lines below it.

@@ -26,7 +26,11 @@ flowchart TD
     E -->|genuinely the person's call| T
     T --> H{another open item?}
     H -->|Yes| D
-    H -->|No| FR[Compute the frontier: each open decision<br/>whose prerequisites are settled]
+    H -->|No| HK{a local hook runs a full suite on every push?}
+    HK -->|No| FR
+    HK -->|Yes, records say CI is the boundary| HK1[Record a ruling: core.hooksPath at empty,<br/>applied in housekeeping] --> FR
+    HK -->|Yes, records silent| HK2[Put the question in the design tree] --> FR
+    FR[Compute the frontier: each open decision<br/>whose prerequisites are settled]
     FR --> FE{frontier empty?}
     FE -->|No| F{cheap to reverse?}
     F -->|Yes| F1[Record a ruling; it leaves the frontier] --> FR
@@ -46,14 +50,18 @@ flowchart TD
     KR -->|Yes| KR1([Stop: name the cause; another session can have planned them]):::stop
     KR -->|No| L[Plan comment on every issue in the round;<br/>its first line names it the plan,<br/>with the approval time to the minute in UTC]
 
-    L --> M{/gh:sync in own skill listing?}
-    M -->|Yes| M1[Ask the person to run /gh:sync] --> M2
-    M -->|No| M3[Fast-forward the default branch itself] --> M2
+    L --> M{default branch checked out in the root?}
+    M -->|No| M1[git fetch origin default:default] --> M6
+    M -->|Yes| M3{uncommitted changes?}
+    M3 -->|Yes| M4([Stop: name the dirty default branch]):::stop
+    M3 -->|No| M5[git fetch origin, then merge --ff-only] --> M6
+    M6{fast-forward refused?}
+    M6 -->|Yes| M7([Stop: name the diverged default branch]):::stop
+    M6 -->|No| M2
     M2[Remove ignored leftovers under plugins/] --> N
-    N{a local hook runs a full suite?}
+    N{a ruling says CI is the boundary?}
     N -->|No| W
-    N -->|Yes, records say CI is the boundary| O1[Propose core.hooksPath at empty,<br/>human present, restore at close] --> W
-    N -->|Yes, records silent| O2([Ask: disable it, per-push cost stated]):::pause --> W
+    N -->|Yes| O1[Apply it: core.hooksPath at empty,<br/>no ask, restore at close] --> W
     W{an upper layer's base that no<br/>pull_request CI filter matches?}
     W -->|No, or a GitHub stack runs it| P
     W -->|Yes| W1[Comment on each issue: name the layer;<br/>merge the layer below, retarget, then CI runs] --> P
@@ -62,10 +70,10 @@ flowchart TD
     P --> Q([Report: what each frontier round asked and answered,<br/>the rulings, the two comments, housekeeping])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
-    classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
 ```
 
 The hook question is the one case in the whole skill where a cheap ruling is not taken,
-when the records are silent. If you disable a push-time suite, you change what protects
+when the records are silent. It is asked in the frontier, before plan mode, so
+`ExitPlanMode` is the last step that asks the person. If you disable a push-time suite, you change what protects
 the round. So this question is asked, not ruled, even though it is, in every other
 sense, reversible.
