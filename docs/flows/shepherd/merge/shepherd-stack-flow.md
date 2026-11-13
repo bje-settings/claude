@@ -25,7 +25,7 @@ flowchart TD
     D -->|Yes| E{The stack holds an open pull request?}
     E -->|No, or the read came back short| Z3([ok:false: no open pull request in the stack,<br/>or could not read the stack]):::stop
     E -->|No, for queue or queue-wait| QG([ok:true: gone; read each layer<br/>of the merge report with merged])
-    E -->|Yes: open layers, bottom first;<br/>a merged entry is no layer| F{Action}
+    E -->|Yes: open layers, bottom first;<br/>a merged entry is no layer,<br/>except for queue and queue-wait| F{Action}
 
     F -->|state| S1[shepherd-pr state on each layer,<br/>with the rules of the stack base]
     S1 -->|A layer cannot be read| SX([ok:false, with the layer]):::stop

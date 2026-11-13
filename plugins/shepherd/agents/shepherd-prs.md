@@ -254,8 +254,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> state
 
 ## Queue mode
 
-A target whose base has `mode` `queue` comes here. GitHub tests each queue entry on top of the
-entries ahead of it, so do not rebase a pull request or wait for its CI before it goes in.
+A target whose base has `mode` `queue` comes here. The base of a pull request is
+`pr.baseRefName` of its `state`. The base of a stack is `base` of `shepherd-stack state`. GitHub
+tests each queue entry on top of the entries ahead of it. So do not rebase a pull request, and
+do not wait for its CI before it goes in.
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-pr <path> <n> queue-wait <since>
@@ -265,59 +267,63 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> queue
 
 `<since>` marks the start of this pass through the queue. A removal before it is from an earlier
 pass, not this one. Set it again each time a target goes in:
-- A pull request that GitHub adds: the time you start to follow it, from
-  `date -u +%Y-%m-%dT%H:%M:%SZ`. Then the `enqueued_at` of its last queue report.
+- A pull request that GitHub adds: the `date -u +%Y-%m-%dT%H:%M:%SZ` you read just before its
+  `state` in the first pass. Keep it until the pull request goes in again.
 - After `enqueue`: the `entry.enqueuedAt` of its report.
 - A stack: the `date` you read just before each `shepherd-stack merge`. Keep it for that pass.
 
 `overlaps` in the queue report of the base gives, for each target, the targets that share a
 changed file with it (`shares`). You put a target in the queue yourself with each
-`shepherd-stack merge` and each `enqueue`. Before you do, follow each target in its `shares` that
-is in the queue to its merge or its drop. A target that shares no file with a target in the queue
-goes in at once. GitHub adds a single pull request by itself, in its own order. Do not try to hold
-one back.
+`shepherd-stack merge` and each `enqueue`. This is the order rule. Before you do, follow each
+target in its `shares` that you put in, to its merge or its drop. A target that shares no file
+with one of those goes in at once. GitHub adds a single pull request by itself, in its own order.
+Do not try to hold one back.
 
-Work in two passes. First put each target in, in the order given. Then follow each one, in the
-same order.
+Work in two passes. First put each target in, in the order given. The order rule can stop the
+first pass: then follow the target that it names, and go on. Then follow each target that is
+left, in the same order.
 
-**Put in a pull request.** Do step 1 of the loop. On `DIRTY`, do the step 5 merge. Do not act on
-`BEHIND`. Auto-merge then adds it once the rules of the base are met.
+**Put in a pull request.** Do step 1 of the loop. On `pr.mergeStateStatus` `DIRTY`, do the step 5
+merge. Do not act on `BEHIND` or `pr.behind`. Auto-merge then adds it once the rules of the base
+are met. Keep `pr.headRefOid` of that `state`: it is the head you put in.
 
 **Put in a stack.** Do steps 1 to 3 of "A stack target", then `merge` (step 4). On `merged`,
 record it. On `accepted`, the layers are in the queue.
 
 **Follow a target.** Call `queue-wait` and act on `result`:
 - On `merged`, record it, with `queue_seconds`.
-- On `pending`, call `queue-wait` again. Three `pending` results in a row with `queue_state`
-  `waiting`, and no change in `pr.headRefOid`, is skipped ("not added to the queue"), with
-  `pr.mergeStateStatus` and `pr.checks.state`.
-- On `failed`, the checks of the pull request failed, so GitHub does not add it. Take it through
-  steps 2 to 5 of the loop. Once a `wait` gives `passed`, call `queue-wait` again.
-- On `removed`, go to "A drop". For a stack, `layer` is the layer that dropped first, and
-  `drop` is its drop.
-- On `not_queued`, nothing will add it. Re-read `state` and record it as step 1 says. A stack is
+- On `pending`, call `queue-wait` again. For a pull request, three `pending` results in a row
+  with `queue_state` `waiting`, and no change in `pr.headRefOid`, is skipped ("not added to the
+  queue"), with `pr.mergeStateStatus` and `pr.checks.state`.
+- On `failed` (a pull request only), its checks failed, so GitHub does not add it. Call `wait`,
+  and act on it as steps 3 to 5 of the loop say. Once a `wait` gives `passed`, call `queue-wait`
+  again.
+- On `removed`, go to "A drop". For a stack, `layer` is the layer to fix: the oldest drop whose
+  class is not `stack_invalidated`. `drop` is its drop.
+- On `not_queued`, call `queue-wait` once more: an entry can show late. A second `not_queued`
+  means that nothing will add it. Then re-read `state` and record it as step 1 says. A stack is
   skipped, with `layers`.
 - On `gone` (a stack), no layer is open. Call the `shepherd-pr` action `merged` on each layer of
   the `merge` report. When each one reads `merged: true`, record the stack as merged.
 - On `ok:false`, call `queue-wait` again. A second `ok:false` is skipped, with the detail.
 
 **A drop.** Act on `drop.class` once for each target. A second drop is skipped, with both drops.
-For a stack, the queue removes every layer above a dropped layer (`stack_invalidated`). So you
-fix `layer` only, by the class of its own drop, then put the stack in again from its top, with
-`update`, `wait` and `merge`.
+For a stack, the queue removes every layer above a dropped layer (`stack_invalidated`). So fix
+`layer` only, by the class of its own drop. Then put the stack in again with `update`, `wait`
+and `merge`.
 - On `merge_conflict`, do the step 5 merge of the base into the pull request, or into `layer`.
   Then `wait` (for a stack, `shepherd-stack wait`) until `passed`, and put it in again.
 - On `stack_invalidated` for `layer` itself, no layer gave a cause. Act as for `other`.
-- On `other`, read `state` (for a stack, `shepherd-stack state`). When the head is the head you
-  put in and the checks are `passed`, put it in again, once. Else record it as skipped, with
-  `drop.reason` verbatim.
+- On `invalid_merge_commit` or `other`, read `state` (for a stack, `shepherd-stack state`). Put
+  it in again once, when two things hold. Each head is the head you put in, and the checks are
+  `passed`. Else record it as skipped, with `drop.reason` verbatim.
 
 Put a pull request in again with `enqueue`, with `pr.headRefOid` from a `state` you just read.
-`enqueued` and `queued` are in the queue. `refused` is skipped, with `reason` verbatim. Put a
-stack in again with `shepherd-stack merge`. Each time, apply the order rule above first.
+`enqueued` and `queued` are in the queue. `refused` is skipped, with `reason` verbatim. On any
+other `ok:false`, re-read `state` and decide again. A second one is skipped, with the detail.
+Put a stack in again with `shepherd-stack merge`. Each time, apply the order rule above first.
 
-A base in `serial` mode, or a `queue` report with `unavailable` set, takes the loop and "A stack
-target", as they are.
+A base in `serial` mode takes the loop and "A stack target", as they are.
 
 ## Report
 
@@ -359,8 +365,9 @@ This one entry replaces three former lists:
 - a failure that was already failing, or that you could not explain or verify
 
 Each target of Queue mode also has one `queue` entry. `target` is the number, or `stack:<s>`.
-`state` is `merged`, `queued` (still in the queue when you stopped), `dropped` (with its last
-drop), or `skipped`. `queue_seconds` is from the last queue report, or null. `drops` lists each
+`state` is `merged`, `queued` (still in the queue when you stopped), `dropped` (skipped after a
+drop, with its last drop), or `skipped`. A `dropped` or `skipped` target also has its entry under
+`skipped` (or `stacks.skipped`). `queue_seconds` is from the last queue report, or null. `drops` lists each
 drop, with its `class` and `reason`.
 
 A stack goes under `stacks`, never under `merged` or `skipped`. A skipped stack names the

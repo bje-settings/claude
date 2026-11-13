@@ -116,15 +116,14 @@ stack \`base\`, not of its own base.
             merged); removed (a layer dropped); queued (a layer can still
             move in the queue); or not_queued (no layer is in the queue,
             and none dropped). On removed, \`layer\` and \`drop\` name the
-            layer that dropped first. The queue removes a stack as one
-            unit, and every layer above a dropped layer goes with it
-            (stack_invalidated). So it is the oldest drop of another class,
-            the bottom one of a tie: the layer to fix. When every drop is
-            stack_invalidated, it is the oldest of those. \`queue_seconds\` is the longest time
-            of a layer. \`gone\` (ok:true) when no open pull request is in
-            the stack: after a merge, read each layer of the merge report
-            with shepherd-pr merged. ok:false when a read failed, with
-            \`layer\`.
+            layer to fix. The queue removes a stack as one unit, and every
+            layer above a dropped layer goes with it (stack_invalidated).
+            So it is the oldest drop of another class, the bottom one of a
+            tie. When every drop is stack_invalidated, it is the oldest of
+            those. \`queue_seconds\` is the longest time of a layer. \`gone\`
+            (ok:true) when no open pull request is in the stack: after a
+            merge, read each layer of the merge report with shepherd-pr
+            merged. ok:false when a read failed, with \`layer\`.
   queue-wait reads as queue does, with the poll and the bound of
             shepherd-pr queue-wait, until the result is merged, removed or
             not_queued. The layers come from the first read, so a stack

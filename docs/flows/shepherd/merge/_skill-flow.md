@@ -50,16 +50,18 @@ flowchart TD
         QF -->|Merged| QFM([Merged, with its time in the queue])
         QF -->|Not added, checks failed| QFF[Fix it through the serial loop] --> QF
         QF -->|Not added for three reads| QFS([Skipped: not added to the queue]):::stop
+        QF -->|Not in the queue for two reads,<br/>and nothing will add it| QFS
         QF -->|Dropped, a first time| QD{Drop class}
         QD -->|merge_conflict| QD1[Merge the base, resolve, wait for CI]
-        QD -->|stack_invalidated| QD2[Fix the layer that dropped first]
-        QD -->|other: same head, CI green| QD3[No fix]
-        QD -->|other: head moved, or CI not green| QDS([Skipped, with GitHub's words]):::stop
+        QD -->|stack_invalidated| QD2[Fix the layer to fix: the oldest drop<br/>of a class other than stack_invalidated]
+        QD -->|invalid_merge_commit or other:<br/>same head, CI green| QD3[No fix]
+        QD -->|invalid_merge_commit or other:<br/>head moved, or CI not green| QDS([Skipped, with GitHub's words]):::stop
         QD1 --> QR{Shares a file with a target in the queue?}
         QD2 --> QR
         QD3 --> QR
         QR -->|Yes| QR2[Follow that target to its merge or drop first] --> QR
         QR -->|No| QE[Put it in again: enqueue for a PR,<br/>gh stack merge for a stack; never jump] --> QF
+        QE -->|GitHub refused the enqueue| QDS
         QF -->|Dropped a second time| QDS
     end
 

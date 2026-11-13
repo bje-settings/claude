@@ -197,13 +197,14 @@ Each drop gets one action, at most once per target:
 | Drop | Action |
 | --- | --- |
 | `merge_conflict` | Merge the base into the head and resolve, as for a conflict in the loop. Wait for CI, then put it in again. |
-| `stack_invalidated` | The queue removes a stack as one unit, so each layer above a dropped layer goes too. `shepherd-stack queue-wait` names the layer that dropped first. The agent fixes that layer, then puts the stack in again from its top. |
-| Any other reason, such as `invalid_merge_commit` | Put it in again once, when the head is the same and CI is green. Otherwise it is skipped, with GitHub's own words. |
+| `stack_invalidated` | The queue removes a stack as one unit, so each layer above a dropped layer goes too. `shepherd-stack queue-wait` names the layer to fix: the oldest drop whose class is not `stack_invalidated`. The agent fixes that layer, then puts the stack in again. |
+| `invalid_merge_commit`, or any other reason | Put it in again once, when the head is the same and CI is green. Otherwise it is skipped, with GitHub's own words. |
 
 `shepherd-pr enqueue` puts a single pull request in again. It is the GraphQL `enqueuePullRequest`
 mutation, with the head the agent read as `expectedHeadOid`. It refuses first, with no write: a
-base with no queue, a pull request that is not open, a layer of a stack, or a head that moved. It
-never sets `jump`, and it never merges. It is not `gh pr merge`, which merges at once when the
+base with no queue, a pull request that is not open, a layer of a stack, or a head that moved. A
+write that gives no entry can still have landed, so it then reads the entry once more. It never
+sets `jump`, and it never merges. It is not `gh pr merge`, which merges at once when the
 queue rule goes away during a run.
 
 The report gives each target its queue state (merged, queued, dropped with its reason, or
@@ -291,7 +292,7 @@ read that fails never decides a verdict: it gives `ok: false`, or `result` `unre
 merged yet), `refused` with gh's `reason` (or why gh could not run or was killed), or
 `not_ready` with each layer and reason. A `not_ready` with an empty `failing` is a base that
 allows no merge method, and `detail` says so. `queue` and `queue-wait` read the queue of each
-layer, and name the layer that dropped first. `gone` means no layer of the stack is open.
+layer, and name the layer to fix. `gone` means no layer of the stack is open.
 `node <plugin>/scripts/shepherd.ts shepherd-stack --help` has the whole contract.
 
 `node <plugin>/scripts/shepherd.ts shepherd-pr --help` lists the environment knobs

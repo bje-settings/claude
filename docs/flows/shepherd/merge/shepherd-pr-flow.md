@@ -76,7 +76,10 @@ flowchart TD
         EE -->|Yes| EQD([ok true: queued, no write, exit 0])
         EE -->|No| EW[enqueuePullRequest with expectedHeadOid;<br/>never jump]
         EW -->|An entry| EOK([ok true: enqueued, exit 0])
-        EW -->|GitHub refused| ER([ok false: refused, GitHub's words, exit 0]):::stop
+        EW -->|No entry| EA{Read the entry once more}
+        EA -->|An entry| EQD
+        EA -->|Could not be read| EU
+        EA -->|None| ER([ok false: refused, GitHub's words, exit 0]):::stop
     end
 
     subgraph queue [queue and queue-wait: read only]
