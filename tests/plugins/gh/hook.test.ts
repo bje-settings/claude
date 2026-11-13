@@ -267,7 +267,8 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
       'requests and Dependabot alerts. The module writes the problems to the transcript. ' +
       'It refreshes the row on a timer ' +
       'and after a git, gh or sync command. The check fetches, but never changes a branch, ' +
-      'worktree, or working tree.',
+      'worktree, or working tree. The module also refuses a gh issue create with no --type in a ' +
+      'repository that has issue types.',
   )
 })
 

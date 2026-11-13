@@ -1,5 +1,6 @@
 // The hooks module of the gh plugin (#488, #496, ADR 007). It draws the
-// repo status row under the prompt, and keeps it fresh.
+// repo status row under the prompt, and keeps it fresh. It also refuses a
+// `gh issue create` with no `--type` (#347).
 //
 // The row is the first row of the prompt hint (`ui.render` on
 // `PromptHint`). So it shows under the prompt on the terminal and desktop.
@@ -12,11 +13,27 @@
 // The `SessionStart` command hook in `hooks.json` keeps only the dependency
 // check (ADR 007, ruling 7).
 //
+// A `gh issue create` with no `--type` is refused when the repository defines
+// issue types. The module reads the types once for each repository in a
+// session, and keeps the answer in memory. A read that fails lets the call
+// through, and writes one log line for that repository.
+//
 // The module imports no `node:` module and no `src/lib/` copy (ADR 007,
-// ruling 6). Its decisions are in `src/status-pin.ts`, which vitest
-// measures. A helper that takes `$` is a `function` declaration.
+// ruling 6). Its decisions are in `src/status-pin.ts` and
+// `src/issue-create.ts`, which vitest measures. A helper that takes `$` is a
+// `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
+import {
+  DENY_REASON,
+  guardOffText,
+  TYPES_TIMEOUT_MS,
+  type Types,
+  typesArgv,
+  typesKey,
+  typesOf,
+  untypedCreates,
+} from '../src/issue-create.ts'
 import {
   changesCounts,
   failureText,
@@ -129,7 +146,43 @@ async function refreshHere($: EngineInterface, pin: Pin): Promise<void> {
   }
 }
 
+/**
+ * What the repository defines. The first call for a repository starts the
+ * read, and each later call shares its answer. `repo` is the `-R` or
+ * `--repo` value, or `undefined` for the session's directory. A read that
+ * fails or times out is `unknown`, and stays so for the session: no second
+ * read delays a call. That read writes one log line. A
+ * directory that cannot be read is `unknown`, is not kept, and writes no
+ * line.
+ */
+async function readTypes(
+  $: EngineInterface,
+  cache: Map<string, Promise<Types>>,
+  repo: string | undefined,
+): Promise<Types> {
+  try {
+    const cwd = await $.session.cwd()
+    const key = typesKey(repo, cwd)
+    let read = cache.get(key)
+    if (read === undefined) {
+      read = $.process
+        .run(typesArgv(repo), { cwd, timeoutMs: TYPES_TIMEOUT_MS })
+        .then(typesOf, (): Types => 'unknown')
+        .then((types) => {
+          if (types === 'unknown') $.ui.log(guardOffText(repo, cwd))
+          return types
+        })
+      cache.set(key, read)
+    }
+    return await read
+  } catch {
+    return 'unknown'
+  }
+}
+
 export const register: Register = (on) => {
+  /** The read of the issue types, for each repository of this session. */
+  const typesCache = new Map<string, Promise<Types>>()
   const pin: Pin = {
     running: false,
     again: false,
@@ -179,6 +232,10 @@ export const register: Register = (on) => {
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    // A command with no untyped `gh issue create` reads nothing.
+    for (const { repo } of untypedCreates(e.command)) {
+      if ((await readTypes($, typesCache, repo)) === 'types') return { deny: DENY_REASON }
+    }
     const ran = await next(e)
     if (ran.deny === undefined && changesCounts(e.command)) void refreshHere($, pin)
     return ran
