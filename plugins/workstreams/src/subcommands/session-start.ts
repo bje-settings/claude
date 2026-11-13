@@ -25,8 +25,8 @@
 // already have sends them the wrong way.
 //
 // `preflight.ts`'s `OPTIONAL_PLUGINS` row for `gh` goes with it.
-// `question/SKILL.md` now reads its own skill listing for `/gh:sync`. It
-// no longer asks this hook about the `gh` plugin.
+// `question/SKILL.md` does not use the `gh` plugin. It fast-forwards the
+// default branch itself, so it never asks this hook about `gh`.
 //
 // Every filesystem read is async, and has a time limit from one clock
 // (#267). A read that did not finish in time reads as "could not be
