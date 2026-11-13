@@ -115,7 +115,7 @@ const layer = (
   number: number,
   result: LayerQueue['result'],
   at: string | null = null,
-  kind: 'other' | 'stack_invalidated' | 'merge_conflict' = 'other',
+  kind: 'other' | 'stack_invalidated' | 'merge_conflict' | 'invalid_merge_commit' = 'other',
 ) => ({
   number,
   result,
@@ -144,6 +144,21 @@ describe('stackQueueResult', () => {
     const swept = layer(2, 'removed', '2026-10-20T22:10:00Z', 'stack_invalidated')
     expect(stackQueueResult([cause, swept]).first).toBe(cause)
     expect(stackQueueResult([swept, cause]).first).toBe(cause)
+  })
+
+  it('takes a cause of any class other than stack_invalidated', () => {
+    for (const kind of ['other', 'invalid_merge_commit'] as const) {
+      const cause = layer(1, 'removed', '2026-10-20T22:10:01Z', kind)
+      const swept = layer(2, 'removed', '2026-10-20T22:10:00Z', 'stack_invalidated')
+      expect(stackQueueResult([cause, swept]).first).toBe(cause)
+    }
+  })
+
+  it('reads a drop as removed beside a layer still queued or merged', () => {
+    const drop = layer(1, 'removed', '2026-10-20T22:10:00Z')
+    expect(stackQueueResult([drop, layer(2, 'queued')])).toEqual({ result: 'removed', first: drop })
+    const top = layer(2, 'removed', '2026-10-20T22:10:00Z')
+    expect(stackQueueResult([layer(1, 'merged'), top])).toEqual({ result: 'removed', first: top })
   })
 
   it('names the oldest stack_invalidated layer when every drop is one', () => {
@@ -293,6 +308,27 @@ describe('queue', () => {
     })
   })
 
+  it('answers gone when the open stacks hold only another stack', async () => {
+    const ran = await stack(
+      serve({ stacks: { rows: [{ ...STACK, number: 999 }], unavailable: null }, views: {} }),
+      ['queue'],
+    )
+
+    expect(ran.document).toMatchObject({ ok: true, result: 'gone' })
+  })
+
+  it('reads the stack from a short read of the open stacks that holds it', async () => {
+    const ran = await stack(
+      serve({
+        stacks: { rows: [STACK], unavailable: 'one stack could not be read' },
+        views: { 470: [open(470)], 471: [open(471)] },
+      }),
+      ['queue'],
+    )
+
+    expect(ran.document).toMatchObject({ ok: true, result: 'not_queued' })
+  })
+
   it('refuses a stack read that came back short and does not hold the stack', async () => {
     const ran = await stack(
       serve({ stacks: { rows: [], unavailable: 'gh: HTTP 502' }, views: {} }),
@@ -363,6 +399,26 @@ describe('queue-wait', () => {
       read_error: '',
     })
     expect(ran.document.layers[0]).toMatchObject({ enqueued_at: ENQUEUED })
+  })
+
+  it('takes a since, and passes over a drop from before it on every read', async () => {
+    const old = { reason: 'merge_conflict', createdAt: '2026-10-20T21:00:00Z' }
+    const ran = await stack(
+      serve({
+        // The second read of #470 has no entry, so only since keeps the old
+        // drop out of it.
+        views: {
+          470: [open(470), open(470), merged(470)],
+          471: [open(471), open(471), merged(471)],
+        },
+        entries: { 470: [queued(), NO_ENTRY], 471: [queued(), queued(), NO_ENTRY] },
+        removals: { 470: [{ rows: [old], unavailable: null }] },
+      }),
+      ['queue-wait', ENQUEUED],
+    )
+
+    expect(ran.code).toBe(0)
+    expect(ran.document).toMatchObject({ result: 'merged', reads_ok: 3 })
   })
 
   it('reads until a layer drops, and names it', async () => {

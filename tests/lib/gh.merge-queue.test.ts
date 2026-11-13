@@ -569,19 +569,30 @@ describe('enqueuePullRequest', () => {
     })
 
   it('enqueues the pull request with the head the caller read, and never jumps', async () => {
-    const { gh, calls } = clientAnswering([REPO, NODE, enqueued(ENTRY)])
+    // A stand-in GitHub: it gives the node id of #512 only, and an entry
+    // only to a mutation with that id and head, as strings, and no jump.
+    const pair = (args: readonly string[], flag: string, value: string): boolean =>
+      args.some((arg, at) => arg === value && args[at - 1] === flag)
+    const head = '1'.repeat(40)
+    const run: Runner = async (_command, args = []) => {
+      const query = args.at(-1) ?? ''
+      if (args[0] === 'repo') return REPO
+      if (query.startsWith('query=query')) {
+        return pair(args, '-F', 'number=512') ? NODE : graphql({ id: null })
+      }
+      const right =
+        pair(args, '-f', 'id=PR_kwDO') &&
+        pair(args, '-f', `head=${head}`) &&
+        query.includes(
+          'enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head })',
+        ) &&
+        !query.includes('jump')
+      return right ? enqueued(ENTRY) : enqueued(null, [{ message: 'wrong mutation' }])
+    }
 
     await expect(
-      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+      createGhClient({ run }).enqueuePullRequest({ pullRequest: 512, expectedHeadOid: head }),
     ).resolves.toEqual({ entry: ENTRY, unavailable: null })
-    expect(calls[1]).toContain('number=512')
-    expect(calls[2]).toContain('id=PR_kwDO')
-    expect(calls[2]).toContain(`head=${HEAD}`)
-    const mutation = calls[2]?.at(-1) ?? ''
-    expect(mutation).toContain(
-      'enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head })',
-    )
-    expect(mutation).not.toContain('jump')
   })
 
   it("gives GitHub's own words when it refuses the enqueue", async () => {

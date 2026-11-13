@@ -465,7 +465,9 @@ cannot make it act on the wrong pull request.
             only with gh stack merge, through shepherd-stack merge),
             \`head_moved\` (the head is not <head>), or \`unread\` (a read
             failed, so nothing was proven). An entry already there is
-            \`queued\`, with no write. Then \`enqueued\` with \`entry\`, or
+            \`queued\`, with no write. Then \`enqueued\` with \`entry\`. When
+            the write gives no entry, it reads the entry once more: an
+            entry is \`queued\`, a failed read is \`unread\`, and else it is
             \`refused\` with GitHub's own words in \`reason\`. It can only add
             to a queue. It never merges.
 
@@ -1587,6 +1589,24 @@ export class Shepherd {
       expectedHeadOid: expected,
     })
     if (written.entry === null) {
+      // A write that timed out, or a reply with no entry, can still have
+      // put the pull request in the queue. Read the entry once more.
+      const after = await gh.mergeQueueEntry({ pullRequest: this.options.number })
+      if (after.entry !== null) {
+        this.emit(true, `in the queue after the enqueue: ${after.entry.state}`, {
+          result: 'queued',
+          entry: after.entry,
+          pr: pull,
+        })
+        return
+      }
+      if (after.unavailable !== null) {
+        return refuse(
+          'unread',
+          `the enqueue gave no entry (${written.unavailable}), and the entry could not be ` +
+            `read again: ${after.unavailable}`,
+        )
+      }
       this.emit(false, `GitHub refused the enqueue: ${written.unavailable}`, {
         result: 'refused',
         reason: written.unavailable,

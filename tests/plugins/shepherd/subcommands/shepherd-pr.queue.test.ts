@@ -129,6 +129,17 @@ describe('argumentRefusal', () => {
     expect(argumentRefusal('queue', 'yesterday')).toBe('not a time: yesterday')
     expect(argumentRefusal('state', 'anything')).toBeNull()
   })
+
+  it.each([
+    ['39 characters', 'a'.repeat(39)],
+    ['41 characters', 'a'.repeat(41)],
+    ['a letter past f', `${'a'.repeat(39)}g`],
+    ['upper case', 'A'.repeat(40)],
+    ['a prefix', `x${'a'.repeat(40)}`],
+    ['a new line', `${'a'.repeat(40)}\n`],
+  ])('refuses a head of %s', (_what, head) => {
+    expect(argumentRefusal('enqueue', head)).toBe(`enqueue needs the full head sha: ${head}`)
+  })
 })
 
 // --- queue -------------------------------------------------------------------------
@@ -186,6 +197,74 @@ describe('queue', () => {
     }))
 
     expect(result.document).toMatchObject({ result: 'merged', queue_seconds: 1200 })
+  })
+
+  it('reads merged first, beside an entry or a removal of an earlier pass', async () => {
+    const drop = { reason: 'merge_conflict', createdAt: '2026-10-20T21:00:00Z' }
+    const withEntry = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'queue'],
+      gh: queueGh({ prs: [merged(1)] }, [queued()]),
+    }))
+    const withDrop = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'queue'],
+      gh: queueGh({ prs: [merged(1)] }, [NO_ENTRY], [removed(drop)]),
+    }))
+
+    expect(withEntry.document).toMatchObject({ result: 'merged' })
+    expect(withDrop.document).toMatchObject({ result: 'merged', detail: 'merged' })
+  })
+
+  it('ends the time in the queue only at a merge, a drop or now', async () => {
+    const row = { ...depPr(1), updatedAt: '2026-10-20T22:20:00Z' }
+    const waiting = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'queue', ENQUEUED],
+      gh: queueGh({ prs: [row] }),
+    }))
+    const idle = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'queue', ENQUEUED],
+      gh: queueGh({ prs: [{ ...row, autoMergeRequest: null }] }),
+    }))
+
+    expect(waiting.document).toMatchObject({
+      result: 'waiting',
+      left_at: null,
+      queue_seconds: null,
+    })
+    expect(idle.document).toMatchObject({
+      result: 'not_queued',
+      left_at: null,
+      queue_seconds: null,
+    })
+  })
+
+  it('times an entry from its own enqueuedAt, not from an older since', async () => {
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'queue', '2026-10-20T21:00:00Z'],
+      gh: queueGh({ prs: [depPr(1)] }, [queued()]),
+    }))
+
+    expect(result.document).toMatchObject({ enqueued_at: ENQUEUED, queue_seconds: 1800 })
+  })
+
+  it.each([
+    ['an entry with a reason', [{ entry: ENTRY, unavailable: 'rate limit soon' }], [NO_REMOVALS]],
+    [
+      'removals with a reason',
+      [NO_ENTRY],
+      [
+        {
+          rows: [{ reason: 'merge_conflict', createdAt: ENQUEUED }],
+          unavailable: 'more than 100 removals',
+        },
+      ],
+    ],
+  ] as const)('refuses a read that came back short: %s', async (_what, entries, removals) => {
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'queue'],
+      gh: queueGh({ prs: [depPr(1)] }, entries, removals),
+    }))
+
+    expect(result.document).toMatchObject({ ok: false })
   })
 
   it('gives no end to a merge whose updatedAt is not a time', async () => {
@@ -364,6 +443,44 @@ describe('queue-wait', () => {
       read_failures: 0,
       read_error: '',
     })
+  })
+
+  it('times a merge from the newest entry it saw, not from since or the first entry', async () => {
+    const result = await drive((sandbox, repo) => ({
+      argv: [repo, '1', 'queue-wait', '2026-10-20T21:00:00Z'],
+      env: queueEnv(sandbox.env),
+      gh: queueGh(
+        {
+          sequences: {
+            viewPullRequest: [depPr(1), depPr(1), merged(1, '2026-10-20T22:15:00Z')],
+          },
+        },
+        [queued(), queued({ ...ENTRY, enqueuedAt: '2026-10-20T22:05:00Z' }), NO_ENTRY],
+      ),
+    }))
+
+    expect(result.document).toMatchObject({
+      result: 'merged',
+      enqueued_at: '2026-10-20T22:05:00Z',
+      queue_seconds: 600,
+    })
+  })
+
+  it('reads for 540 seconds every 30 by default, and for a poll that is not one', async () => {
+    for (const env of [{}, { SHEPHERD_QUEUE_POLL: '0' }]) {
+      const result = await drive((sandbox, repo) => ({
+        argv: [repo, '1', 'queue-wait'],
+        env: { ...sandbox.env, ...env },
+        gh: queueGh({ prs: [depPr(1)] }, [queued()]),
+      }))
+
+      expect(result.document).toMatchObject({
+        result: 'pending',
+        bound: 540,
+        waited: 540,
+        reads_ok: 19,
+      })
+    }
   })
 
   it('answers at once when the first read is already merged, timed from since', async () => {
@@ -559,7 +676,6 @@ describe('enqueue', () => {
   const refusing = (options: GhServerOptions): GhClient => queueGh(options)
 
   it('enqueues an open pull request with the head the caller read', async () => {
-    const sent: unknown[] = []
     const server = queueGh({
       prs: [OPEN()],
       replies: { mergeQueue: QUEUE, listOpenStacks: { rows: [], unavailable: null } },
@@ -568,10 +684,11 @@ describe('enqueue', () => {
       argv: [repo, '1', 'enqueue', HEAD],
       gh: {
         ...server,
-        enqueuePullRequest: async (query) => {
-          sent.push(query)
-          return { entry: { ...ENTRY, state: 'QUEUED' }, unavailable: null }
-        },
+        // Only the right pull request and head get an entry.
+        enqueuePullRequest: async (query) =>
+          query.pullRequest === 1 && query.expectedHeadOid === HEAD
+            ? { entry: { ...ENTRY, state: 'QUEUED' }, unavailable: null }
+            : { entry: null, unavailable: `wrong query: ${JSON.stringify(query)}` },
       },
     }))
 
@@ -583,7 +700,91 @@ describe('enqueue', () => {
       result: 'enqueued',
       entry: { ...ENTRY, state: 'QUEUED' },
     })
-    expect(sent).toEqual([{ pullRequest: 1, expectedHeadOid: HEAD }])
+  })
+
+  it('reads the queue of the base of the pull request, not of main', async () => {
+    const server = queueGh({
+      prs: [OPEN({ baseRefName: 'release/1' })],
+      replies: { listOpenStacks: { rows: [], unavailable: null } },
+    })
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'enqueue', HEAD],
+      gh: {
+        ...server,
+        mergeQueue: async ({ branch }) =>
+          branch === 'release/1'
+            ? { queue: QUEUE_RULE, unavailable: null }
+            : { queue: null, unavailable: null },
+        enqueuePullRequest: async () => ({ entry: ENTRY, unavailable: null }),
+      },
+    }))
+
+    expect(result.document).toMatchObject({ ok: true, result: 'enqueued' })
+  })
+
+  it('answers queued when a write gave no entry but the entry is there after it', async () => {
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'enqueue', HEAD],
+      gh: queueGh(
+        {
+          prs: [OPEN()],
+          replies: {
+            mergeQueue: QUEUE,
+            listOpenStacks: { rows: [], unavailable: null },
+            enqueuePullRequest: { entry: null, unavailable: 'gh timed out after 60s' },
+          },
+        },
+        [NO_ENTRY, queued()],
+      ),
+    }))
+
+    expect(result.document).toMatchObject({
+      ok: true,
+      detail: 'in the queue after the enqueue: AWAITING_CHECKS',
+      result: 'queued',
+      entry: ENTRY,
+    })
+  })
+
+  it('answers unread when a write gave no entry and the entry cannot be read again', async () => {
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'enqueue', HEAD],
+      gh: queueGh(
+        {
+          prs: [OPEN()],
+          replies: {
+            mergeQueue: QUEUE,
+            listOpenStacks: { rows: [], unavailable: null },
+            enqueuePullRequest: { entry: null, unavailable: 'gh timed out after 60s' },
+          },
+        },
+        [NO_ENTRY, { entry: null, unavailable: 'gh: HTTP 502' }],
+      ),
+    }))
+
+    expect(result.document).toMatchObject({
+      ok: false,
+      result: 'unread',
+      detail:
+        'refused: the enqueue gave no entry (gh timed out after 60s), and the entry could not ' +
+        'be read again: gh: HTTP 502',
+    })
+  })
+
+  it('refuses a head that moved by one character, even when an entry is there', async () => {
+    const moved = `${'a'.repeat(39)}b`
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'enqueue', HEAD],
+      gh: queueGh(
+        {
+          prs: [OPEN({ headRefOid: moved })],
+          replies: { mergeQueue: QUEUE, listOpenStacks: { rows: [], unavailable: null } },
+        },
+        [queued()],
+      ),
+    }))
+
+    expect(result.document).toMatchObject({ ok: false, result: 'head_moved' })
   })
 
   it("gives GitHub's own words when it refuses the enqueue", async () => {
