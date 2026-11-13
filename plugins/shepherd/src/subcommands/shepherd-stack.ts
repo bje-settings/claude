@@ -315,7 +315,7 @@ class StackShepherd {
   stackQueueDetail(layers: readonly LayerQueue[]): string {
     const { result, first } = stackQueueResult(layers)
     if (first !== null) {
-      return `#${first.number} dropped first: ${dropWords(first.drop as QueueDrop)}`
+      return `#${first.number} is the layer to fix: ${dropWords(first.drop as QueueDrop)}`
     }
     if (result === 'merged') return 'every layer merged'
     if (result === 'queued') return 'the stack is in the queue'

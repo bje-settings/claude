@@ -1,6 +1,6 @@
 // `shepherd.ts shepherd-stack` queue actions (#503): `queue` and
 // `queue-wait` over the layers of a stack that `gh stack merge` put in the
-// merge queue, and the layer that dropped first.
+// merge queue, and the layer to fix.
 //
 // **No test waits.** `fakeTime` moves the clock by each sleep.
 import { describe, expect, it } from 'vitest'
@@ -227,7 +227,7 @@ describe('queue', () => {
     expect(ran.document.layers[0]).not.toHaveProperty('pr')
   })
 
-  it('names the layer that dropped first, when stack_invalidated takes the layer above it', async () => {
+  it('names the layer to fix, when stack_invalidated takes the layer above it', async () => {
     const conflict = { reason: 'merge_conflict', createdAt: '2026-10-20T22:10:00Z' }
     const invalidated = { reason: 'stack_invalidated', createdAt: '2026-10-20T22:10:02Z' }
     const ran = await stack(
@@ -243,7 +243,7 @@ describe('queue', () => {
 
     expect(ran.document).toMatchObject({
       ok: true,
-      detail: '#470 dropped first: merge_conflict',
+      detail: '#470 is the layer to fix: merge_conflict',
       result: 'removed',
       layer: 470,
       drop: { ...conflict, class: 'merge_conflict' },
@@ -267,7 +267,7 @@ describe('queue', () => {
     expect(ran.document).toMatchObject({
       result: 'removed',
       layer: 470,
-      detail: '#470 dropped first: stack_invalidated',
+      detail: '#470 is the layer to fix: stack_invalidated',
       queue_seconds: null,
     })
   })
