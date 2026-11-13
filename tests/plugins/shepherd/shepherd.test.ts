@@ -14,6 +14,8 @@
 // point to commit `cd0d515`, the last commit that held them. Each reference
 // states where a rule came from.
 import { describe, expect, it } from 'vitest'
+import { createGhMock, type GhResults, type MergeQueueRule } from '#harness/gh.ts'
+import { captureOutput } from '#harness/output.ts'
 import {
   approvalOf,
   autoMergeBases,
@@ -23,23 +25,38 @@ import {
   checkState,
   checks,
   ciSeconds,
+  contextRuns,
   failedRequired,
+  fileOverlaps,
+  hasMergeGroupTrigger,
   isBot,
   isDependabot,
   isTruthy,
   layerReasons,
   missingField,
+  NO_HEAD_ROW,
+  NO_QUEUE,
+  NOT_ACTIONS,
   type NotReady,
+  noMergeGroup,
+  notProven,
   oneLine,
   type PullSummary,
   pendingRuns,
+  queueReport,
   rank,
+  readQueue,
+  readTargetFiles,
+  type StackTarget,
   statusDocument,
   summary,
   tailLines,
+  targetBase,
+  targetHeads,
   threadReads,
   threadsOf,
   unreportedRequired,
+  withQueue,
 } from '#shepherd/shepherd.ts'
 
 const checkRun = (status: string, conclusion: string | null, name = 'build') => ({
@@ -1319,5 +1336,473 @@ describe('stacks (#469)', () => {
     })
 
     expect(document.targets).toEqual([{ stack: 9, base: 'main', layers: [8] }])
+  })
+})
+
+// --- the merge queue (#503) --------------------------------------------------
+
+describe('hasMergeGroupTrigger', () => {
+  for (const [form, text] of [
+    ['a scalar', 'name: CI\non: merge_group\n'],
+    ['a quoted scalar', "on: 'merge_group'\n"],
+    ['a flow list', 'on: [pull_request, merge_group]\n'],
+    ['a flow list with quotes', 'on: ["pull_request", "merge_group"]\n'],
+    ['a flow map', 'on: {pull_request: {branches: [main]}, merge_group: {}}\n'],
+    ['a block key with no body', 'on:\n  pull_request:\n  merge_group:\n'],
+    [
+      'a block key with a body',
+      'on:\n  pull_request:\n    branches: [main]\n  merge_group:\n    types: [checks_requested]\n',
+    ],
+    ['a block key with a comment after it', 'on:\n  merge_group: # the queue\n'],
+    ['a block sequence', 'on:\n  - push\n  - merge_group\n'],
+    ['a block sequence at the indent of on', 'on:\n- push\n- merge_group\n'],
+    ['a double-quoted on key', '"on":\n  merge_group:\n'],
+    ['a single-quoted on key', "'on': [merge_group]\n"],
+    ['CRLF line ends', 'on:\r\n  merge_group:\r\n'],
+    ['blank lines inside the block', 'on:\n\n  pull_request:\n\n  merge_group:\n'],
+    ['an on key after a comment that names it', '# on: push\non: [merge_group]\n'],
+  ] as const) {
+    it(`reads ${form} as a merge_group trigger`, () => {
+      expect(hasMergeGroupTrigger(text)).toBe(true)
+    })
+  }
+
+  for (const [where, text] of [
+    ['a workflow with no on key', 'name: CI\njobs: {}\n'],
+    ['a workflow with no merge_group event', 'on:\n  pull_request:\n  push:\n'],
+    ['a comment under on', 'on:\n  pull_request:\n  # merge_group:\n'],
+    ['a comment after an inline value', 'on: [pull_request] # merge_group\n'],
+    ['a job', 'on: [pull_request]\njobs:\n  merge_group:\n    runs-on: ubuntu-latest\n'],
+    ['a step string', 'on: push\njobs:\n  a:\n    steps:\n      - run: echo "merge_group"\n'],
+    ['a branch filter of another event', 'on:\n  pull_request:\n    branches: [merge_group]\n'],
+    ['the types of another event', 'on:\n  pull_request:\n    types:\n      - merge_group\n'],
+    ['a flow list under another event', 'on: {pull_request: {branches: [merge_group]}}\n'],
+    ['a key of the same name at column 0', 'on: [push]\nmerge_group:\n'],
+    ['a true key, as YAML 1.1 reads on', 'true:\n  merge_group:\n'],
+    ['an on key that is not at column 0', 'x:\n  on: [merge_group]\n'],
+    ['a flow list that does not close on its line', 'on: [pull_request,\n  merge_group]\n'],
+    ['an empty file', ''],
+    ['an on key with no block under it', 'on:\njobs:\n  merge_group: {}\n'],
+    ['a longer event name', 'on: [merge_group_other]\n'],
+    ['an apostrophe that opens no string', "on: [push] # don't add merge_group\n"],
+  ] as const) {
+    it(`refuses merge_group in ${where}`, () => {
+      expect(hasMergeGroupTrigger(text)).toBe(false)
+    })
+  }
+
+  it('keeps a # inside a quoted scalar, which starts no comment', () => {
+    expect(hasMergeGroupTrigger("on: ['a#b', merge_group]\n")).toBe(true)
+  })
+})
+
+const RULE: MergeQueueRule = {
+  checkResponseTimeoutMinutes: 60,
+  groupingStrategy: 'ALLGREEN',
+  maxEntriesToBuild: 5,
+  maxEntriesToMerge: 5,
+  mergeMethod: 'SQUASH',
+  minEntriesToMerge: 1,
+  minEntriesToMergeWaitMinutes: 5,
+}
+
+/** A check row of `name` that an Actions job of `run` reports. */
+const actionsRow = (name: string, run: string) => ({
+  __typename: 'CheckRun',
+  name,
+  status: 'COMPLETED',
+  conclusion: 'SUCCESS',
+  detailsUrl: `https://github.com/acme/widgets/actions/runs/${run}/job/9`,
+})
+
+const headWith = (...rows: unknown[]) => readable({ statusCheckRollup: rows })
+
+const PATH_OF = (path: string): GhResults['workflowRunPath'] => ({ path, unavailable: null })
+const TEXT_OF = (text: string): GhResults['fileText'] => ({ text, unavailable: null })
+const WITH_TRIGGER = 'on: [pull_request, merge_group]\n'
+
+describe('contextRuns', () => {
+  it('maps each context to the run of its row on any target head', () => {
+    const heads = [headWith(actionsRow('types', '7')), headWith(actionsRow('vitest', '8'))]
+
+    expect(contextRuns(['vitest', 'types'], heads)).toEqual([
+      { context: 'vitest', run: '8' },
+      { context: 'types', run: '7' },
+    ])
+  })
+
+  it('takes the first row with a run link, past a row with none', () => {
+    const heads = [
+      headWith(statusContext('SUCCESS', 'vitest')),
+      headWith(actionsRow('vitest', '8')),
+    ]
+
+    expect(contextRuns(['vitest'], heads)).toEqual([{ context: 'vitest', run: '8' }])
+  })
+
+  it('names a context with no row on any head', () => {
+    expect(contextRuns(['vitest'], [headWith(), { number: 2 }])).toEqual([
+      { context: 'vitest', reason: NO_HEAD_ROW },
+    ])
+  })
+
+  it('names a context that only a status context or another app reports', () => {
+    expect(contextRuns(['ci/legacy'], [headWith(statusContext('SUCCESS'))])).toEqual([
+      { context: 'ci/legacy', reason: NOT_ACTIONS },
+    ])
+  })
+})
+
+describe('queueReport', () => {
+  it('is queue mode when every context maps to a workflow with a merge_group trigger', () => {
+    const report = queueReport(
+      RULE,
+      [
+        { context: 'vitest', run: '8' },
+        { context: 'types', run: '8' },
+      ],
+      new Map([['8', PATH_OF('.github/workflows/ci.yml')]]),
+      new Map([['.github/workflows/ci.yml', TEXT_OF(WITH_TRIGGER)]]),
+    )
+
+    expect(report).toEqual({
+      present: true,
+      rule: RULE,
+      mode: 'queue',
+      blocking: [],
+      unavailable: null,
+    })
+  })
+
+  it('is queue mode for a rule with no required context', () => {
+    expect(queueReport(RULE, [], new Map(), new Map()).mode).toBe('queue')
+  })
+
+  it('is serial for a context with no row on any target head', () => {
+    const report = queueReport(
+      RULE,
+      [{ context: 'vitest', reason: NO_HEAD_ROW }],
+      new Map(),
+      new Map(),
+    )
+
+    expect(report.mode).toBe('serial')
+    expect(report.blocking).toEqual([{ context: 'vitest', reason: NO_HEAD_ROW, workflow: null }])
+  })
+
+  it('is serial for a context with no Actions run link', () => {
+    const report = queueReport(
+      RULE,
+      [{ context: 'ci/legacy', reason: NOT_ACTIONS }],
+      new Map(),
+      new Map(),
+    )
+
+    expect(report.mode).toBe('serial')
+    expect(report.blocking).toEqual([{ context: 'ci/legacy', reason: NOT_ACTIONS, workflow: null }])
+  })
+
+  it('is serial for a workflow with no merge_group trigger, and names the path', () => {
+    const report = queueReport(
+      RULE,
+      [{ context: 'vitest', run: '8' }],
+      new Map([['8', PATH_OF('.github/workflows/ci.yml')]]),
+      new Map([['.github/workflows/ci.yml', TEXT_OF('on: [pull_request]\n')]]),
+    )
+
+    expect(report.mode).toBe('serial')
+    expect(report.blocking).toEqual([
+      {
+        context: 'vitest',
+        reason: noMergeGroup('.github/workflows/ci.yml'),
+        workflow: '.github/workflows/ci.yml',
+      },
+    ])
+    expect(noMergeGroup('a.yml')).toBe('workflow a.yml has no merge_group trigger')
+  })
+
+  it('is serial for a run whose workflow could not be read', () => {
+    const report = queueReport(
+      RULE,
+      [{ context: 'vitest', run: '8' }],
+      new Map([['8', { path: null, unavailable: 'gh: HTTP 502' }]]),
+      new Map(),
+    )
+
+    expect(report.blocking).toEqual([
+      {
+        context: 'vitest',
+        reason: notProven('the workflow of run 8: gh: HTTP 502'),
+        workflow: null,
+      },
+    ])
+    expect(notProven('x')).toBe('could not be proven: x')
+  })
+
+  it('is serial for a workflow file that could not be read', () => {
+    const report = queueReport(
+      RULE,
+      [{ context: 'vitest', run: '8' }],
+      new Map([['8', PATH_OF('dynamic/codeql')]]),
+      new Map([
+        ['dynamic/codeql', { text: null, unavailable: 'dynamic/codeql at main is not a file' }],
+      ]),
+    )
+
+    expect(report.blocking).toEqual([
+      {
+        context: 'vitest',
+        reason: notProven('dynamic/codeql: dynamic/codeql at main is not a file'),
+        workflow: 'dynamic/codeql',
+      },
+    ])
+  })
+
+  it('is serial for a run or a file that was not read at all', () => {
+    const unread = queueReport(RULE, [{ context: 'vitest', run: '8' }], new Map(), new Map())
+    const noFile = queueReport(
+      RULE,
+      [{ context: 'vitest', run: '8' }],
+      new Map([['8', PATH_OF('ci.yml')]]),
+      new Map(),
+    )
+
+    expect(unread.blocking[0]?.reason).toBe(notProven('the workflow of run 8: it was not read'))
+    expect(noFile.blocking[0]?.reason).toBe(notProven('ci.yml: it was not read'))
+  })
+})
+
+/** A `gh` with a merge queue on `main`, one required check, and a run
+ *  and a workflow file for it. `overrides` replaces any endpoint. */
+const queueGh = (overrides: Parameters<typeof createGhMock>[0] = {}) =>
+  createGhMock({
+    mergeQueue: { queue: RULE, unavailable: null },
+    requiredContexts: { contexts: ['vitest'], unavailable: null },
+    workflowRunPath: PATH_OF('.github/workflows/ci.yml'),
+    fileText: TEXT_OF(WITH_TRIGGER),
+    ...overrides,
+  })
+
+describe('readQueue', () => {
+  const heads = [headWith(actionsRow('vitest', '8'))]
+
+  it('reads the rule, the run and the workflow file, and decides queue mode', async () => {
+    const output = captureOutput()
+
+    await expect(readQueue(queueGh(), 'main', heads, output.err)).resolves.toEqual({
+      present: true,
+      rule: RULE,
+      mode: 'queue',
+      blocking: [],
+      unavailable: null,
+    })
+    expect(output.stderr()).toBe('')
+  })
+
+  it('reads no required check, run or file for a base with no queue', async () => {
+    // Only `mergeQueue` is registered. Any other read would throw.
+    const gh = createGhMock({ mergeQueue: { queue: null, unavailable: null } })
+
+    await expect(readQueue(gh, 'main', heads, captureOutput().err)).resolves.toEqual(NO_QUEUE)
+  })
+
+  it('is serial with present null when the rules could not be read, and says why', async () => {
+    const gh = createGhMock({ mergeQueue: { queue: null, unavailable: 'gh: HTTP 502' } })
+    const output = captureOutput()
+
+    await expect(readQueue(gh, 'main', heads, output.err)).resolves.toEqual({
+      ...NO_QUEUE,
+      present: null,
+      unavailable: 'gh: HTTP 502',
+    })
+    expect(output.stderr()).toBe(
+      'the merge queue of main is unavailable: gh: HTTP 502; mode is serial\n',
+    )
+  })
+
+  it('is serial when the required checks could not be read, and says why', async () => {
+    const gh = queueGh({ requiredContexts: { contexts: [], unavailable: 'gh: HTTP 403' } })
+    const output = captureOutput()
+
+    await expect(readQueue(gh, 'main', heads, output.err)).resolves.toEqual({
+      present: true,
+      rule: RULE,
+      mode: 'serial',
+      blocking: [],
+      unavailable: 'the required checks could not be read: gh: HTTP 403',
+    })
+    expect(output.stderr()).toBe(
+      'the required checks of main are unavailable: gh: HTTP 403; mode is serial\n',
+    )
+  })
+
+  it('reads no file for a run whose path could not be read', async () => {
+    // `fileText` is not registered, so a read of it would throw.
+    const gh = createGhMock({
+      mergeQueue: { queue: RULE, unavailable: null },
+      requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
+      workflowRunPath: { path: null, unavailable: 'gh: HTTP 404' },
+    })
+    const twoChecks = [headWith(actionsRow('vitest', '8'), actionsRow('types', '8'))]
+
+    const report = await readQueue(gh, 'main', twoChecks, captureOutput().err)
+
+    expect(report.mode).toBe('serial')
+    expect(report.blocking.map((block) => block.context)).toEqual(['vitest', 'types'])
+  })
+
+  it('reads one workflow file once for two runs of it, at the base', async () => {
+    const refs: string[] = []
+    const gh = {
+      ...queueGh({ requiredContexts: { contexts: ['vitest', 'types'], unavailable: null } }),
+      fileText: async ({ ref }: { path: string; ref: string }) => {
+        refs.push(ref)
+        return TEXT_OF(WITH_TRIGGER)
+      },
+    }
+    const twoRuns = [headWith(actionsRow('vitest', '8'), actionsRow('types', '9'))]
+
+    const report = await readQueue(gh, 'release', twoRuns, captureOutput().err)
+
+    expect(report.mode).toBe('queue')
+    expect(refs).toEqual(['release'])
+  })
+})
+
+describe('targetBase and targetHeads', () => {
+  const pull = (number: number, base: string, rows: unknown[] = []) =>
+    readable({ number, baseRefName: base, autoMergeRequest: {}, statusCheckRollup: rows })
+  const STACK_TARGET: StackTarget = { stack: 472, base: 'main', layers: [470] }
+
+  it('names the base of a pull request target and of a stack target', () => {
+    expect(targetBase(summary(pull(1, 'main')))).toBe('main')
+    expect(targetBase(summary(readable({ baseRefName: null })))).toBe('')
+    expect(targetBase(STACK_TARGET)).toBe('main')
+  })
+
+  it('gives the rows of the pull request and stack targets of each base', () => {
+    const first = pull(1, 'main', [actionsRow('vitest', '8')])
+    const second = pull(2, 'release')
+    const bottom = readable({ number: 470 })
+    const stacks = [
+      {
+        stack: { number: 472, base: 'main', layers: [{ number: 470, state: 'OPEN' as const }] },
+        rows: new Map([[470, bottom]]),
+        contexts: null,
+      },
+    ]
+    const targets = [summary(first), summary(second), summary(pull(3, '')), STACK_TARGET]
+
+    expect(targetHeads(targets, [first, second], stacks)).toEqual(
+      new Map([
+        ['main', [first, bottom]],
+        ['release', [second]],
+      ]),
+    )
+  })
+
+  it('gives no row for a stack target that has no read', () => {
+    expect(targetHeads([STACK_TARGET], [], [])).toEqual(new Map([['main', []]]))
+  })
+})
+
+describe('readTargetFiles', () => {
+  it('reads the files of a pull request target', async () => {
+    const gh = createGhMock({ pullRequestFiles: { files: ['a.ts', 'b.ts'], unavailable: null } })
+
+    await expect(
+      readTargetFiles(gh, summary(readable({ number: 1 })), captureOutput().err),
+    ).resolves.toEqual(['a.ts', 'b.ts'])
+  })
+
+  it('reads the files of each layer of a stack target, once each', async () => {
+    const gh = {
+      ...createGhMock(),
+      pullRequestFiles: async ({ pullRequest }: { pullRequest: number }) => ({
+        files: pullRequest === 470 ? ['a.ts', 'b.ts'] : ['b.ts', 'c.ts'],
+        unavailable: null,
+      }),
+    }
+    const target: StackTarget = { stack: 472, base: 'main', layers: [470, 471] }
+
+    await expect(readTargetFiles(gh, target, captureOutput().err)).resolves.toEqual([
+      'a.ts',
+      'b.ts',
+      'c.ts',
+    ])
+  })
+
+  it('is null when one read fails, and says why', async () => {
+    const gh = createGhMock({ pullRequestFiles: { files: null, unavailable: 'gh: HTTP 502' } })
+    const output = captureOutput()
+    const target: StackTarget = { stack: 472, base: 'main', layers: [470, 471] }
+
+    await expect(readTargetFiles(gh, target, output.err)).resolves.toBeNull()
+    expect(output.stderr()).toBe('the files of #470 are unavailable: gh: HTTP 502; files is null\n')
+  })
+})
+
+describe('fileOverlaps', () => {
+  it('names each target that shares a file with another, and no target twice', () => {
+    expect(
+      fileOverlaps([
+        { id: '#1', files: ['a.ts', 'b.ts'] },
+        { id: '#2', files: ['b.ts'] },
+        { id: '#3', files: ['c.ts'] },
+      ]),
+    ).toEqual([
+      { id: '#1', shares: ['#2'] },
+      { id: '#2', shares: ['#1'] },
+      { id: '#3', shares: [] },
+    ])
+  })
+
+  it('makes a target whose files were not read share with every other', () => {
+    expect(
+      fileOverlaps([
+        { id: '#1', files: null },
+        { id: '#2', files: ['a.ts'] },
+        { id: '#3', files: [] },
+      ]),
+    ).toEqual([
+      { id: '#1', shares: ['#2', '#3'] },
+      { id: '#2', shares: ['#1'] },
+      { id: '#3', shares: ['#1'] },
+    ])
+  })
+
+  it('gives no overlap for one target, or none', () => {
+    expect(fileOverlaps([{ id: '#1', files: ['a.ts'] }])).toEqual([{ id: '#1', shares: [] }])
+    expect(fileOverlaps([])).toEqual([])
+  })
+})
+
+describe('withQueue', () => {
+  it('adds files on the end of each target and queue on the end, and moves nothing', () => {
+    const pulls = [readable({ number: 1, autoMergeRequest: {} })]
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, {
+      rules: new Map(),
+      threads: new Map(),
+      all: false,
+    })
+
+    const queued = withQueue(document, new Map([['main', NO_QUEUE]]), [['a.ts']])
+
+    expect(Object.keys(queued)).toEqual([
+      'repo',
+      'default_branch',
+      'ci_seconds',
+      'targets',
+      'not_ready',
+      'queue',
+    ])
+    expect(Object.keys(queued.targets[0] ?? {}).at(-1)).toBe('files')
+    expect(queued.targets[0]?.files).toEqual(['a.ts'])
+    expect({ ...queued.targets[0], files: undefined }).toEqual({
+      ...document.targets[0],
+      files: undefined,
+    })
+    expect(queued.queue).toEqual({ main: NO_QUEUE })
+    expect(queued.not_ready).toBe(document.not_ready)
   })
 })

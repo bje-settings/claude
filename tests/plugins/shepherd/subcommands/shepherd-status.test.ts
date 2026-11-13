@@ -1027,3 +1027,145 @@ it('reads resolved threads as resolved, and asks for no threads when the rule do
   expect(unasked.status).toBe(0)
   expect(JSON.parse(unasked.stdout).targets[0].threads).toBe('not_required')
 })
+
+// --- the merge queue (#503) --------------------------------------------------
+
+/** A merge queue rule, as `mergeQueue` reads it. */
+const QUEUE: GhResults['mergeQueue'] = {
+  queue: {
+    checkResponseTimeoutMinutes: 60,
+    groupingStrategy: 'ALLGREEN',
+    maxEntriesToBuild: 5,
+    maxEntriesToMerge: 5,
+    mergeMethod: 'SQUASH',
+    minEntriesToMerge: 1,
+    minEntriesToMergeWaitMinutes: 5,
+  },
+  unavailable: null,
+}
+
+/** The endpoints a base with a queue reads, over `depPr(1)` and `depPr(2)`.
+ *  `test` reports from run 11 on #1. The workflow file is `workflow`. */
+const queued = (workflow: string): Partial<GhClient> => ({
+  requiredReviews: async () => rules(0),
+  mergeQueue: async () => QUEUE,
+  requiredContexts: async () => ({ contexts: ['test'], unavailable: null }),
+  workflowRunPath: async ({ run }) => ({
+    path: run === '11' ? '.github/workflows/ci.yml' : null,
+    unavailable: run === '11' ? null : `run ${run} is not this one`,
+  }),
+  fileText: async ({ path, ref }) => ({
+    text: path === '.github/workflows/ci.yml' && ref === 'main' ? workflow : null,
+    unavailable: null,
+  }),
+  pullRequestFiles: async ({ pullRequest }) => ({
+    files: pullRequest === 1 ? ['package.json', 'pnpm-lock.yaml'] : ['pnpm-lock.yaml'],
+    unavailable: null,
+  }),
+})
+
+it('reports queue mode for a base whose required check comes from a merge_group workflow', async () => {
+  const result = await statusOf(
+    ['dependencies'],
+    [depPr(1), depPr(2)],
+    queued('on:\n  pull_request:\n  merge_group:\n'),
+  )
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe('')
+  const document = JSON.parse(result.stdout)
+  expect(document.queue).toEqual({
+    main: { present: true, rule: QUEUE.queue, mode: 'queue', blocking: [], unavailable: null },
+  })
+  expect(document.targets.map((target: { files: unknown }) => target.files)).toEqual([
+    ['package.json', 'pnpm-lock.yaml'],
+    ['pnpm-lock.yaml'],
+  ])
+  // The fields already there keep their place: `files` and `queue` go on
+  // the end.
+  expect(Object.keys(document)).toEqual([
+    'repo',
+    'default_branch',
+    'ci_seconds',
+    'targets',
+    'not_ready',
+    'queue',
+  ])
+  expect(Object.keys(document.targets[0]).slice(-2)).toEqual(['threads', 'files'])
+})
+
+it('reports serial mode, and names the workflow, when it has no merge_group trigger', async () => {
+  // `pullRequestFiles` would throw here: a base in serial mode reads no
+  // files.
+  const extra = { ...queued('on: [pull_request]\n') }
+  delete extra.pullRequestFiles
+  const result = await statusOf(['dependencies'], [depPr(1)], extra)
+
+  expect(result.status).toBe(0)
+  const document = JSON.parse(result.stdout)
+  expect(document.queue.main).toEqual({
+    present: true,
+    rule: QUEUE.queue,
+    mode: 'serial',
+    blocking: [
+      {
+        context: 'test',
+        reason: 'workflow .github/workflows/ci.yml has no merge_group trigger',
+        workflow: '.github/workflows/ci.yml',
+      },
+    ],
+    unavailable: null,
+  })
+  expect(document.targets[0].files).toBeNull()
+})
+
+it('reads no run, workflow or file for a base with no queue', async () => {
+  // `statusOf` registers no `workflowRunPath`, `fileText` or
+  // `pullRequestFiles`, so a read of any of them would throw, and the
+  // command would exit 3.
+  const result = await statusOf(['dependencies'], [depPr(1)], {
+    requiredReviews: async () => rules(0),
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe('')
+  const document = JSON.parse(result.stdout)
+  expect(document.queue).toEqual({
+    main: { present: false, rule: null, mode: 'serial', blocking: [], unavailable: null },
+  })
+  expect(document.targets[0].files).toBeNull()
+})
+
+it('reports a queue read that failed as serial, and says why', async () => {
+  const result = await statusOf(['dependencies'], [depPr(1)], {
+    requiredReviews: async () => rules(0),
+    mergeQueue: async () => ({ queue: null, unavailable: 'gh: HTTP 502' }),
+  })
+
+  expect(result.status).toBe(0)
+  expect(JSON.parse(result.stdout).queue.main).toEqual({
+    present: null,
+    rule: null,
+    mode: 'serial',
+    blocking: [],
+    unavailable: 'gh: HTTP 502',
+  })
+  expect(result.stderr).toBe(
+    'the merge queue of main is unavailable: gh: HTTP 502; mode is serial\n',
+  )
+})
+
+it('reads no queue for a base that only a pull request left out uses', async () => {
+  // #1 needs an approval, so no target uses `main`, and no queue is read.
+  const result = await statusOf(['dependencies'], [depPr(1)], {
+    requiredReviews: async () => rules(1),
+    mergeQueue: async () => {
+      throw new Error('a base no target uses must not be read')
+    },
+  })
+
+  expect(result.status).toBe(0)
+  const document = JSON.parse(result.stdout)
+  expect(document.queue).toEqual({})
+  expect(document.not_ready).toHaveLength(1)
+})
