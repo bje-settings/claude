@@ -629,6 +629,17 @@ describe('enqueuePullRequest', () => {
     ).resolves.toEqual({ entry: ENTRY, unavailable: 'slow' })
   })
 
+  it('reads errors that are not a list as no message', async () => {
+    const { gh } = clientAnswering([REPO, NODE, json({ data: null, errors: 'denied' })])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'GitHub gave no queue entry for pull request 512',
+    })
+  })
+
   it('reads a body that is not an object as no entry', async () => {
     const { gh } = clientAnswering([REPO, NODE, json('text')])
 

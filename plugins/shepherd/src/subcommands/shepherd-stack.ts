@@ -116,10 +116,11 @@ stack \`base\`, not of its own base.
             merged); removed (a layer dropped); queued (a layer can still
             move in the queue); or not_queued (no layer is in the queue,
             and none dropped). On removed, \`layer\` and \`drop\` name the
-            layer that dropped first: the oldest drop, the bottom one of a
-            tie. The queue removes a stack as one unit, and every layer
-            above a dropped layer goes with it (stack_invalidated), so that
-            layer is the one to fix. \`queue_seconds\` is the longest time
+            layer that dropped first. The queue removes a stack as one
+            unit, and every layer above a dropped layer goes with it
+            (stack_invalidated). So it is the oldest drop of another class,
+            the bottom one of a tie: the layer to fix. When every drop is
+            stack_invalidated, it is the oldest of those. \`queue_seconds\` is the longest time
             of a layer. \`gone\` (ok:true) when no open pull request is in
             the stack: after a merge, read each layer of the merge report
             with shepherd-pr merged. ok:false when a read failed, with
@@ -168,8 +169,10 @@ export type StackQueueResult = 'merged' | 'removed' | 'queued' | 'not_queued'
  * The verdict of the queue over the layers of a stack (#503), bottom first.
  * `merged` when every layer merged. `removed` when a layer dropped: the
  * queue removes a stack as one unit, and `stack_invalidated` drops each
- * layer above a dropped layer. So `first` is the layer whose drop is the
- * oldest, the bottom one of a tie: the layer to fix. `queued` while a
+ * layer above a dropped layer. So `first` is the layer to fix: of the
+ * layers whose drop is not `stack_invalidated`, the one whose drop is the
+ * oldest, the bottom one of a tie. When every drop is
+ * `stack_invalidated`, it is the oldest of those. `queued` while a
  * layer can still move in the queue. `not_queued` when no layer is in the
  * queue and none dropped, so nothing will move.
  */
@@ -179,8 +182,12 @@ export const stackQueueResult = (
   if (layers.every((layer) => layer.result === 'merged')) return { result: 'merged', first: null }
   const dropped = layers.filter((layer) => layer.result === 'removed')
   if (dropped.length > 0) {
+    // A `stack_invalidated` layer went with another layer, so it is never
+    // the cause while a layer with another class dropped.
+    const caused = dropped.filter((layer) => layer.drop?.class !== 'stack_invalidated')
     const at = (layer: LayerQueue): number => Date.parse((layer.drop as QueueDrop).createdAt)
-    const first = dropped.reduce((best, layer) => (at(layer) < at(best) ? layer : best))
+    const pool = caused.length > 0 ? caused : dropped
+    const first = pool.reduce((best, layer) => (at(layer) < at(best) ? layer : best))
     return { result: 'removed', first }
   }
   const open = layers.some((layer) => layer.result === 'queued' || layer.result === 'waiting')

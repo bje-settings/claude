@@ -62,7 +62,7 @@ flowchart TD
     Q1 -->|A layer cannot be read| QX([ok:false, with the layer]):::stop
     Q1 --> Q2{The layers together}
     Q2 -->|Every layer merged| QM([merged, the longest time in the queue])
-    Q2 -->|A layer dropped| QD([removed: the layer whose drop is oldest,<br/>the bottom one of a tie, with its drop class])
+    Q2 -->|A layer dropped| QD([removed: the oldest drop of a class other than<br/>stack_invalidated, the bottom one of a tie;<br/>with none, the oldest drop])
     Q2 -->|No layer in the queue, none dropped| QN([not_queued])
     Q2 -->|A layer still in the queue, for queue| QQ([queued])
     Q2 -->|A layer still in the queue, for queue-wait| Q3{Bound reached?}

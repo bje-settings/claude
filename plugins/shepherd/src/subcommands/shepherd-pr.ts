@@ -9,8 +9,8 @@
 // only does the step. It refuses a step whose preconditions do not hold.
 // A confused caller cannot make it act on the wrong pull request.
 //
-// **Time is an argument.** `rebase`, `wait` and `settle` each poll until
-// their own bound. The clock and the sleep come in through `ShepherdContext`.
+// **Time is an argument.** `rebase`, `wait`, `settle` and `queue-wait`
+// each poll until their own bound. The clock and the sleep come in through `ShepherdContext`.
 // This lets the tests drive every bound to its end, with no real wait. The
 // wait and settle bounds are the Python's numbers (#106 measures the settle
 // bound). The rebase bound and the wait interval are new at #460.

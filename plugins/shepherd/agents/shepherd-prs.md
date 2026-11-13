@@ -263,9 +263,12 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-pr <path> <n> enqueue 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> queue-wait <since>
 ```
 
-`<since>` is the `enqueued_at` of the last queue report of that target. Before the first report,
-it is the time you start to follow it, from `date -u +%Y-%m-%dT%H:%M:%SZ`. A removal before
-`<since>` is from an earlier pass, not this one.
+`<since>` marks the start of this pass through the queue. A removal before it is from an earlier
+pass, not this one. Set it again each time a target goes in:
+- A pull request that GitHub adds: the time you start to follow it, from
+  `date -u +%Y-%m-%dT%H:%M:%SZ`. Then the `enqueued_at` of its last queue report.
+- After `enqueue`: the `entry.enqueuedAt` of its report.
+- A stack: the `date` you read just before each `shepherd-stack merge`. Keep it for that pass.
 
 `overlaps` in the queue report of the base gives, for each target, the targets that share a
 changed file with it (`shares`). You put a target in the queue yourself with each

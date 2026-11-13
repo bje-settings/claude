@@ -111,10 +111,15 @@ const stack = async (
   }
 }
 
-const layer = (number: number, result: LayerQueue['result'], at: string | null = null) => ({
+const layer = (
+  number: number,
+  result: LayerQueue['result'],
+  at: string | null = null,
+  kind: 'other' | 'stack_invalidated' | 'merge_conflict' = 'other',
+) => ({
   number,
   result,
-  drop: at === null ? null : { reason: 'x', class: 'other' as const, createdAt: at },
+  drop: at === null ? null : { reason: kind, class: kind, createdAt: at },
 })
 
 describe('stackQueueResult', () => {
@@ -131,6 +136,20 @@ describe('stackQueueResult', () => {
     const top = layer(2, 'removed', '2026-10-20T22:09:00Z')
     expect(stackQueueResult([bottom, top]).first).toBe(top)
     expect(stackQueueResult([top, bottom]).first).toBe(top)
+  })
+
+  it('passes over a stack_invalidated layer while a layer of another class dropped', () => {
+    // The upper layer reads stack_invalidated one second before the cause.
+    const cause = layer(1, 'removed', '2026-10-20T22:10:01Z', 'merge_conflict')
+    const swept = layer(2, 'removed', '2026-10-20T22:10:00Z', 'stack_invalidated')
+    expect(stackQueueResult([cause, swept]).first).toBe(cause)
+    expect(stackQueueResult([swept, cause]).first).toBe(cause)
+  })
+
+  it('names the oldest stack_invalidated layer when every drop is one', () => {
+    const lower = layer(1, 'removed', '2026-10-20T22:10:01Z', 'stack_invalidated')
+    const upper = layer(2, 'removed', '2026-10-20T22:10:00Z', 'stack_invalidated')
+    expect(stackQueueResult([lower, upper]).first).toBe(upper)
   })
 
   it('names the bottom layer of a tie', () => {
