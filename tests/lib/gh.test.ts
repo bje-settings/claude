@@ -1052,6 +1052,7 @@ it("defaults to the root lib's own process runner", () => {
     'commitDate',
     'compareCommits',
     'createCommitStatus',
+    'fileText',
     'issueStates',
     'listIssues',
     'listMergedPullRequests',
@@ -1066,7 +1067,11 @@ it("defaults to the root lib's own process runner", () => {
     'listRuns',
     'listWorkflowRuns',
     'mergeMethods',
+    'mergeQueue',
+    'mergeQueueEntry',
+    'mergeQueueRemovals',
     'mergeStack',
+    'pullRequestFiles',
     'readFailedRunLog',
     'readPlanIssues',
     'repositoryStatus',
@@ -1078,6 +1083,7 @@ it("defaults to the root lib's own process runner", () => {
     'viewPullRequestDetail',
     'viewRepository',
     'viewerLogin',
+    'workflowRunPath',
   ])
 })
 

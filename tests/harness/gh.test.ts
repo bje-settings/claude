@@ -55,6 +55,12 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
       }),
   ],
   ['repositoryStatus', (client) => client.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })],
+  ['mergeQueue', (client) => client.mergeQueue({ branch: 'main' })],
+  ['workflowRunPath', (client) => client.workflowRunPath({ run: '43462283009' })],
+  ['fileText', (client) => client.fileText({ path: '.github/workflows/ci.yml', ref: 'main' })],
+  ['pullRequestFiles', (client) => client.pullRequestFiles({ pullRequest: 510 })],
+  ['mergeQueueEntry', (client) => client.mergeQueueEntry({ pullRequest: 510 })],
+  ['mergeQueueRemovals', (client) => client.mergeQueueRemovals({ pullRequest: 510 })],
 ]
 
 it('answers with the reply registered for the endpoint', async () => {
@@ -202,6 +208,12 @@ it('answers every endpoint it declares', async () => {
       },
       unavailable: null,
     },
+    mergeQueue: { queue: null, unavailable: null },
+    workflowRunPath: { path: '.github/workflows/plugin-validate.yml', unavailable: null },
+    fileText: { text: 'on: [pull_request]\n', unavailable: null },
+    pullRequestFiles: { files: ['plugins/gh/.claude-plugin/plugin.json'], unavailable: null },
+    mergeQueueEntry: { entry: null, unavailable: null },
+    mergeQueueRemovals: { rows: [], unavailable: null },
   })
 
   for (const [endpoint, call] of CALLS) {
