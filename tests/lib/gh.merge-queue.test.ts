@@ -354,7 +354,9 @@ describe('pullRequestFiles', () => {
   })
 
   it('refuses a list at the 3000 files REST gives at most', async () => {
-    const { gh } = clientAnswering([REPO, json(files(100))])
+    // A page 31 that answers empty must not make the 3000 a whole list.
+    const pages = Array.from({ length: 30 }, (_, page) => json(files(100, page * 100)))
+    const { gh } = clientAnswering([REPO, ...pages, json([])])
 
     await expect(gh.pullRequestFiles({ pullRequest: 3 })).resolves.toEqual({
       files: null,
@@ -390,7 +392,11 @@ describe('pullRequestFiles', () => {
   })
 
   it('names a repository that could not be resolved', async () => {
-    const { gh } = clientAnswering([result({ status: 1, stderr: 'gh: no repository\n' })])
+    // A list after the failure must not be read as the files.
+    const { gh } = clientAnswering([
+      result({ status: 1, stderr: 'gh: no repository\n' }),
+      json(files(1)),
+    ])
 
     await expect(gh.pullRequestFiles({ pullRequest: 7 })).resolves.toEqual({
       files: null,

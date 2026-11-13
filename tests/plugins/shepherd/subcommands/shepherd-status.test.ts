@@ -1119,6 +1119,32 @@ it('reports serial mode, and names the workflow, when it has no merge_group trig
   expect(document.targets[0].files).toBeNull()
 })
 
+it('reads the files only of a target whose own base is in queue mode', async () => {
+  // #2 merges into `release`, which has no queue, so its files are not read.
+  const extra = queued('on:\n  pull_request:\n  merge_group:\n')
+  const result = await statusOf(
+    ['dependencies'],
+    [depPr(1), { ...depPr(2), baseRefName: 'release' }],
+    {
+      ...extra,
+      mergeQueue: async ({ branch }) => (branch === 'main' ? QUEUE : NO_QUEUE),
+      pullRequestFiles: async ({ pullRequest }) => {
+        if (pullRequest !== 1) throw new Error('a base in serial mode reads no files')
+        return { files: ['package.json'], unavailable: null }
+      },
+    },
+  )
+
+  expect(result.status).toBe(0)
+  const document = JSON.parse(result.stdout)
+  expect(document.queue.main.mode).toBe('queue')
+  expect(document.queue.release.mode).toBe('serial')
+  expect(document.targets.map((target: { files: unknown }) => target.files)).toEqual([
+    ['package.json'],
+    null,
+  ])
+})
+
 it('reads no run, workflow or file for a base with no queue', async () => {
   // `statusOf` registers no `workflowRunPath`, `fileText` or
   // `pullRequestFiles`, so a read of any of them would throw, and the

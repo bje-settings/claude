@@ -1361,6 +1361,9 @@ describe('hasMergeGroupTrigger', () => {
     ['CRLF line ends', 'on:\r\n  merge_group:\r\n'],
     ['blank lines inside the block', 'on:\n\n  pull_request:\n\n  merge_group:\n'],
     ['an on key after a comment that names it', '# on: push\non: [merge_group]\n'],
+    ['a # with no space in front, which starts no comment', 'on: [a#b, merge_group]\n'],
+    ['a quote after a comma, with " # " in it', 'on: [push,"a # b", merge_group]\n'],
+    ['an apostrophe inside a word, before a comment', "on: [a's, merge_group] # x]\n"],
   ] as const) {
     it(`reads ${form} as a merge_group trigger`, () => {
       expect(hasMergeGroupTrigger(text)).toBe(true)
@@ -1385,6 +1388,12 @@ describe('hasMergeGroupTrigger', () => {
     ['an on key with no block under it', 'on:\njobs:\n  merge_group: {}\n'],
     ['a longer event name', 'on: [merge_group_other]\n'],
     ['an apostrophe that opens no string', "on: [push] # don't add merge_group\n"],
+    ['a column-0 key right under an on with no body', 'on:\nmerge_group:\n'],
+    ['a column-0 key after a sequence at the indent of on', 'on:\n- push\nmerge_group: {}\n'],
+    ['a line deeper than a shallower one', 'on:\n    push:\n  x:\n    merge_group:\n'],
+    ['a flow list nested in another event', 'on: {push: {branches: [a, merge_group, b]}}\n'],
+    ['a key with no space after its colon', 'on: {merge_group:x}\n'],
+    ['a comment after a closed quote', 'on: ["push", x # , merge_group]\n'],
   ] as const) {
     it(`refuses merge_group in ${where}`, () => {
       expect(hasMergeGroupTrigger(text)).toBe(false)
@@ -1444,6 +1453,12 @@ describe('contextRuns', () => {
     expect(contextRuns(['vitest'], [headWith(), { number: 2 }])).toEqual([
       { context: 'vitest', reason: NO_HEAD_ROW },
     ])
+  })
+
+  it('reads a rollup that is not a list as no row', () => {
+    const heads = [readable({ statusCheckRollup: actionsRow('vitest', '8') })]
+
+    expect(contextRuns(['vitest'], heads)).toEqual([{ context: 'vitest', reason: NO_HEAD_ROW }])
   })
 
   it('names a context that only a status context or another app reports', () => {
