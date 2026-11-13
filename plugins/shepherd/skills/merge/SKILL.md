@@ -95,7 +95,8 @@ Collate the agents' JSON into one table per repo:
 For each target of the agent's `queue` list, add two columns: its queue state (merged, queued,
 dropped with its class and reason, or skipped) and its `queue_seconds`. For each base whose
 `queue` from step 2 has `present` true and `mode` `serial`, name each `blocking` check with its
-`reason` and `workflow`: the person adds the `merge_group` trigger.
+`reason` and `workflow`: the person adds the `merge_group` trigger. For each base whose `queue`
+has `unavailable` set, name it with those words: it took the serial loop.
 
 Then list each `not_ready` entry from step 2 as not shepherded, with its `reasons` ("needs an
 approval", "has unresolved review threads"). For a stack, name each `failing` layer and its

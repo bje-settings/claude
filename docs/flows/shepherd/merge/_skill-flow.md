@@ -53,7 +53,7 @@ flowchart TD
         QF -->|Not in the queue, and nothing will add it| QFN([Recorded as step 1 says, or skipped]):::stop
         QF -->|Dropped, a first time| QD{Drop class}
         QD -->|merge_conflict| QD1[Merge the base, resolve, wait for CI]
-        QD -->|stack_invalidated| QD2[Fix the layer to fix: the oldest drop<br/>of a class other than stack_invalidated]
+        QD -->|stack_invalidated| QD2[Fix the layer that the report names: the oldest<br/>drop of a class other than stack_invalidated]
         QD -->|invalid_merge_commit or other:<br/>same head, CI green| QD3[No fix]
         QD -->|invalid_merge_commit or other:<br/>head moved, or CI not green| QDS([Skipped, with GitHub's words]):::stop
         QD1 --> QR{Shares a file with a target in the queue?}
@@ -62,6 +62,7 @@ flowchart TD
         QR -->|Yes| QR2[Follow that target to its merge or drop first] --> QR
         QR -->|No| QE[Put it in again: enqueue for a PR,<br/>gh stack merge for a stack; never jump] --> QF
         QE -->|GitHub refused the enqueue| QDS
+        QE -->|Unconfirmed: no second enqueue| QF
         QF -->|Dropped a second time| QDS
     end
 

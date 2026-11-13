@@ -269,7 +269,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> queue
 pass, not this one. Set it again each time a target goes in:
 - A pull request that GitHub adds: the `date -u +%Y-%m-%dT%H:%M:%SZ` you read just before its
   `state` in the first pass. Keep it until the pull request goes in again.
-- After `enqueue`: the `entry.enqueuedAt` of its report.
+- After `enqueue`: the `entry.enqueuedAt` of its report. After `unconfirmed`, which has no
+  `entry`: the `date` you read just before that `enqueue`.
 - A stack: the `date` you read just before each `shepherd-stack merge`. Keep it for that pass.
 
 `overlaps` in the queue report of the base gives, for each target, the targets that share a
@@ -284,26 +285,31 @@ first pass: then follow the target that it names, and go on. Then follow each ta
 left, in the same order.
 
 **Put in a pull request.** Do step 1 of the loop. On `pr.mergeStateStatus` `DIRTY`, do the step 5
-merge. Do not act on `BEHIND` or `pr.behind`. Auto-merge then adds it once the rules of the base
-are met. Keep `pr.headRefOid` of that `state`: it is the head you put in.
+merge, then read `state` again. Do not act on `BEHIND` or `pr.behind`. Auto-merge then adds it
+once the rules of the base are met. Keep `pr.headRefOid` of your last `state`: it is the head you
+put in.
 
-**Put in a stack.** Do steps 1 to 3 of "A stack target", then `merge` (step 4). On `merged`,
-record it. On `accepted`, the layers are in the queue.
+**Put in a stack.** Do steps 1 to 3 of "A stack target". Then call `state` again, and keep each
+`layers[].pr.headRefOid`: these are the heads you put in. Then call `merge` (step 4). On
+`merged`, record it. On `accepted`, the layers are in the queue.
 
 **Follow a target.** Call `queue-wait` and act on `result`:
 - On `merged`, record it, with `queue_seconds`.
-- On `pending`, call `queue-wait` again. For a pull request, three `pending` results in a row
-  with `queue_state` `waiting`, and no change in `pr.headRefOid`, is skipped ("not added to the
-  queue"), with `pr.mergeStateStatus` and `pr.checks.state`.
+- On `pending`, call `queue-wait` again. For a pull request, count each `pending` with
+  `queue_state` `waiting` whose `pr.checks.state` is not `pending`. Three in a row with no change
+  in `pr.headRefOid` is skipped ("not added to the queue"). Record `pr.mergeStateStatus` and
+  `pr.checks.state` with it.
 - On `failed` (a pull request only), its checks failed, so GitHub does not add it. Call `wait`.
   On `passed`, call `queue-wait` again, with no `settle`. On `failed`, do steps 4 and 5, then
-  `wait` again. On any other result, act on it as step 3 says.
+  `wait` again. On any other result, act on it as step 3 says. So a `behind` goes to the step 2
+  `rebase`: a pull request with failed checks is out of the queue.
 - On `removed`, go to "A drop". For a stack, `layer` is the layer to fix: the oldest drop whose
   class is not `stack_invalidated`. `drop` is its drop.
 - On `not_queued`, nothing will add it. Re-read `state` and record it as step 1 says. A stack is
   skipped, with `layers`.
 - On `gone` (a stack), no layer is open. Call the `shepherd-pr` action `merged` on each layer of
-  the `merge` report. When each one reads `merged: true`, record the stack as merged.
+  the `merge` report. When each one reads `merged: true`, record the stack as merged. Else skip
+  the stack, with the `merged` of each layer.
 - On `ok:false`, call `queue-wait` again. A second `ok:false` is skipped, with the detail.
 
 **A drop.** Act on `drop.class` once for each target. A second drop is skipped, with both drops.
@@ -318,8 +324,16 @@ and `merge`.
   `passed`. Else record it as skipped, with `drop.reason` verbatim.
 
 Put a pull request in again with `enqueue`, with `pr.headRefOid` from a `state` you just read.
-`enqueued` and `queued` are in the queue. `refused` is skipped, with `reason` verbatim. On any
-other `ok:false`, re-read `state` and decide again. A second one is skipped, with the detail.
+Read the `date` just before the `enqueue`. Then act on `result`:
+- `enqueued` or `queued`: it is in the queue.
+- `refused`: skip it, with `reason` verbatim.
+- `unconfirmed`: the write can have landed. Do not call `enqueue` again. Follow it with
+  `queue-wait`, and act on that result.
+- `head_moved` or `unread`: re-read `state`, and decide again. A second one is skipped, with the
+  detail.
+- `no_queue`, `not_open` or `stacked`: re-read `state`. Record a merged or closed pull request as
+  step 1 says. Skip any other, with the detail.
+
 Put a stack in again with `shepherd-stack merge`. Each time, apply the order rule above first.
 
 A base in `serial` mode takes the loop and "A stack target", as they are.
@@ -354,7 +368,8 @@ object per conflicted file, with its `file` and the `resolution` you chose. For 
 not resolve, the `resolution` is "unresolved", with the cause. Omit `conflicts` when there was no
 conflict.
 
-Every pull request that did not merge or close is one `skipped` entry, with a `reason`. It also
+Every pull request that did not merge or close is one `skipped` entry, with a `reason`. A target
+that is still `queued` in Queue mode is the one exception. It also
 carries `mergeStateStatus`, `reviewDecision`, `autoMerge`, and `waited`, whichever of them came
 from a read that named them. Omit a field you did not read.
 
@@ -366,8 +381,9 @@ This one entry replaces three former lists:
 Each target of Queue mode also has one `queue` entry. `target` is the number, or `stack:<s>`.
 `state` is `merged`, `queued` (still in the queue when you stopped), `dropped` (skipped after a
 drop, with its last drop), or `skipped`. A `dropped` or `skipped` target also has its entry under
-`skipped` (or `stacks.skipped`). `queue_seconds` is from the last queue report, or null. `drops` lists each
-drop, with its `class` and `reason`.
+`skipped` (or `stacks.skipped`). A `queued` target has its `queue` entry only.
+`queue_seconds` is from the last queue report, or null. For a `queued` target, it is the time so
+far. `drops` lists each drop, with its `class` and `reason`.
 
 A stack goes under `stacks`, never under `merged` or `skipped`. A skipped stack names the
 layer and the reason it read: `failing`, `layer`, `reason`, `result` and `layers`, whichever

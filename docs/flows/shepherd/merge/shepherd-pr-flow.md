@@ -45,7 +45,7 @@ flowchart TD
     S([ok true: the pull request, whether its head<br/>is behind its base, approval and threads,<br/>branchRefOid and inSync, exit 0])
     R -->|merged| M([ok true: merged with its commit,<br/>or not merged with its state, exit 0])
 
-    subgraph writes [rebase: the only write]
+    subgraph writes [rebase: the branch update]
         R -->|rebase| RB{Open?}
         RB -->|No| RF([ok false: refused, exit 0]):::stop
         RB -->|Yes| RB2{gh accepted the update?}
@@ -76,10 +76,11 @@ flowchart TD
         EE -->|Yes| EQD([ok true: queued, no write, exit 0])
         EE -->|No| EW[enqueuePullRequest with expectedHeadOid;<br/>never jump]
         EW -->|An entry| EOK([ok true: enqueued, exit 0])
-        EW -->|No entry| EA{Read the entry once more}
+        EW -->|GitHub's errors, no entry| ER([ok false: refused, GitHub's words, exit 0]):::stop
+        EW -->|No node id, nothing sent| EU
+        EW -->|A timeout, or a reply that says nothing| EA{Read the entry once more}
         EA -->|An entry| EAQ([ok true: queued, after the write, exit 0])
-        EA -->|Could not be read| EAU([ok false: unconfirmed; the write<br/>can have landed, exit 0]):::stop
-        EA -->|None| ER([ok false: refused, GitHub's words, exit 0]):::stop
+        EA -->|None, or could not be read| EAU([ok false: unconfirmed; the write<br/>can have landed, exit 0]):::stop
     end
 
     subgraph queue [queue and queue-wait: read only]

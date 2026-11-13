@@ -201,12 +201,13 @@ Each drop gets one action, at most once per target:
 | `invalid_merge_commit`, or any other reason | Put it in again once, when the head is the same and CI is green. Otherwise it is skipped, with GitHub's own words. |
 
 `shepherd-pr enqueue` puts a single pull request in again. It is the GraphQL `enqueuePullRequest`
-mutation, with the head the agent read as `expectedHeadOid`. It refuses first, with no write: a
-base with no queue, a pull request that is not open, a layer of a stack, or a head that moved. A
-write that gives no entry can still have landed. So it then reads the entry once more, and a read
-that fails is `unconfirmed`. It never
-sets `jump`, and it never merges. It is not `gh pr merge`, which merges at once when the
-queue rule goes away during a run.
+mutation, with the head the agent read as `expectedHeadOid`. It refuses first, with no write.
+The refusals are a base with no queue, a pull request that is not open, a layer of a stack, and a
+head that moved. GitHub's errors are `refused`. A timeout, or a reply with no entry and no error,
+can still have landed. So it then reads the entry once more. An entry is `queued`, and else it is
+`unconfirmed` (`ok: false`). The agent then follows the pull request with `queue-wait`, and does
+not enqueue again. It never sets `jump`, and it never merges. It is not `gh pr merge`, which
+merges at once when the queue rule goes away during a run.
 
 The report gives each target its queue state (merged, queued, dropped with its reason, or
 skipped) and its time in the queue.
