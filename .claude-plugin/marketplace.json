@@ -15,7 +15,7 @@
     {
       "name": "shepherd",
       "source": "./plugins/shepherd",
-      "description": "Pull request merges. /shepherd:merge merges every auto-merge-enabled pull request one at a time, and each stack once every layer is ready, optionally by one label, and waits on CI between merges.",
+      "description": "Pull request merges. /shepherd:merge merges every auto-merge-enabled pull request one at a time, and each stack once every layer is ready, through the merge queue of the base when it has one, optionally by one label, and waits on CI between merges.",
       "category": "development"
     },
     {
