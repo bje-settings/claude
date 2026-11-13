@@ -261,7 +261,9 @@ export const pollQueue = async <T>(
   let stale = false
   let readsOk = 1
   let readsFailed = 0
-  while (stale || !done(last)) {
+  // A failed read leaves `last` as it was, and `last` was not done, so the
+  // loop reads again.
+  while (!done(last)) {
     const left = bound - spent()
     if (left <= 0) break
     await context.sleep(Math.min(interval, left) * 1000)
