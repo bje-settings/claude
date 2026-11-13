@@ -177,8 +177,8 @@ goes through, because `--repo` is not a field of any request here: it is a const
 So the tests assert the repository half of `gh_calls` as `{ cwd: <target>, repository: <resolved> }`,
 rather than as argv. `subcommands/shepherd-status.test.ts` does the same for its two listings. The
 capture keeps the field because it is the Python's record. Apart from the #216 removals and the
-#460 additions above, and the #465, #466 and #467 additions below, nobody edits the captures.
-#469 and #463 edit none.
+#460 additions above, and the #465, #466, #467 and #503 additions below, nobody edits the
+captures. #469 and #463 edit none.
 
 ## What #465 changed
 
@@ -224,6 +224,18 @@ byte of a case changed.
   target, and a stack in `not_ready`, show only in `subcommands/shepherd-status.stacks.test.ts`.
 - **`shepherd-pr`.** The output of each action is the same. `shepherd-stack` runs the same steps
   on each layer, with a `report` in place of stdout (`subcommands/shepherd-stack.test.ts`).
+
+## What #503 changed
+
+#503 adds output to `shepherd-status`. The edits change the `stdout` of a case, and nothing else.
+No case was added or removed. No capture recorded a merge queue. So each replay answers
+`mergeQueue` with no queue, and reads no run, workflow or file.
+
+- **`files`** is the last key of each entry of `targets`. It is `null`, because no base is in
+  queue mode.
+- **`queue`** is the last key of each document. It has one entry for each base the targets use,
+  and is `{}` for a document with no target. Each entry is `present` false, `rule` null, `mode`
+  `serial`, `blocking` `[]` and `unavailable` null.
 
 ## What #463 changed
 
