@@ -401,6 +401,25 @@ describe('queue-wait', () => {
     expect(ran.document.layers[0]).toMatchObject({ enqueued_at: ENQUEUED })
   })
 
+  it('times each layer from the newest entry it saw', async () => {
+    const ran = await stack(
+      serve({
+        views: {
+          470: [open(470), open(470), merged(470)],
+          471: [open(471), open(471), merged(471)],
+        },
+        entries: {
+          470: [queued(), queued({ ...ENTRY, enqueuedAt: '2026-10-20T22:05:00Z' }), NO_ENTRY],
+          471: [queued(), queued(), NO_ENTRY],
+        },
+      }),
+      ['queue-wait'],
+    )
+
+    expect(ran.document).toMatchObject({ result: 'merged' })
+    expect(ran.document.layers[0]).toMatchObject({ enqueued_at: '2026-10-20T22:05:00Z' })
+  })
+
   it('takes a since, and passes over a drop from before it on every read', async () => {
     const old = { reason: 'merge_conflict', createdAt: '2026-10-20T21:00:00Z' }
     const ran = await stack(
