@@ -81,6 +81,9 @@ const NO_RULE = {
   unavailable: null,
 }
 
+/** A base with no merge queue, as `mergeQueue` answers it (#503). */
+const NO_QUEUE = { queue: null, unavailable: null }
+
 /** What `gh repo view` answered with in the capture. */
 const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
 
@@ -322,6 +325,7 @@ const replay = async (name: string): Promise<void> => {
         viewRepository: REPOSITORY,
         listRuns: [],
         requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
         ...ARRANGEMENTS[name]?.replies,
       },
     }),
@@ -395,7 +399,12 @@ it('takes the working directory as the target when none is given', async () => {
       argv: [],
       gh: createGhServer({
         prs: [depPr(1)],
-        replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+        replies: {
+          viewRepository: REPOSITORY,
+          listRuns: [],
+          requiredReviews: NO_RULE,
+          mergeQueue: NO_QUEUE,
+        },
       }),
     }
   })
@@ -413,7 +422,12 @@ it('asks for every open pull request, with the window it reads, when no label is
   const queries: unknown[] = []
   const server = createGhServer({
     prs: [],
-    replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+    replies: {
+      viewRepository: REPOSITORY,
+      listRuns: [],
+      requiredReviews: NO_RULE,
+      mergeQueue: NO_QUEUE,
+    },
   })
 
   let target = ''
@@ -441,7 +455,12 @@ it('passes the one label given through to the query', async () => {
   const queries: unknown[] = []
   const server = createGhServer({
     prs: [],
-    replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+    replies: {
+      viewRepository: REPOSITORY,
+      listRuns: [],
+      requiredReviews: NO_RULE,
+      mergeQueue: NO_QUEUE,
+    },
   })
 
   const result = await drive((_sandbox, repo) => ({
@@ -464,7 +483,12 @@ it('refuses a third argument, naming one label per run', async () => {
     argv: [repo, 'dependencies', 'enhancement'],
     gh: createGhServer({
       prs: [],
-      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+      replies: {
+        viewRepository: REPOSITORY,
+        listRuns: [],
+        requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
+      },
     }),
   }))
 
@@ -499,7 +523,12 @@ it('exits 1 when the open window saturates, and names the fix', async () => {
     argv: [],
     gh: createGhServer({
       prs: openPrs,
-      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+      replies: {
+        viewRepository: REPOSITORY,
+        listRuns: [],
+        requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
+      },
     }),
   }))
 
@@ -516,7 +545,12 @@ it('does not saturate one below the limit', async () => {
     argv: [],
     gh: createGhServer({
       prs: openPrs,
-      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+      replies: {
+        viewRepository: REPOSITORY,
+        listRuns: [],
+        requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
+      },
     }),
   }))
 
@@ -726,7 +760,12 @@ it('lets a reader that left stop the report, and nothing else', async () => {
     argv: [],
     gh: createGhServer({
       prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+      replies: {
+        viewRepository: REPOSITORY,
+        listRuns: [],
+        requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
+      },
     }),
     reader: closedPipe,
   }))
@@ -774,7 +813,10 @@ const statusOf = (argv: readonly string[], prs: PullRequestRow[], extra: Partial
   drive((_sandbox, repo) => ({
     argv: [repo, ...argv],
     gh: {
-      ...createGhServer({ prs, replies: { viewRepository: REPOSITORY, listRuns: [] } }),
+      ...createGhServer({
+        prs,
+        replies: { viewRepository: REPOSITORY, listRuns: [], mergeQueue: NO_QUEUE },
+      }),
       ...extra,
     },
   }))
@@ -809,7 +851,7 @@ it('makes the same pull request a target with --all, in any position, beside a l
     const queries: unknown[] = []
     const server = createGhServer({
       prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, listRuns: [] },
+      replies: { viewRepository: REPOSITORY, listRuns: [], mergeQueue: NO_QUEUE },
     })
     const result = await drive((_sandbox, repo) => ({
       argv: [repo, ...argv],

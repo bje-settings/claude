@@ -72,6 +72,10 @@ const layer = (number: number, overrides: PullRequestRow = {}): PullRequestRow =
 
 const STACK = { stack: 472, base: 'main', layers: [470, 471] }
 
+/** {@link STACK} as a target. A base with no queue reads no files, so
+ *  `files` is null (#503). A stack in `not_ready` carries no `files`. */
+const TARGET = { ...STACK, files: null }
+
 /** A server over `prs` that answers the review rules of each branch from
  *  `rules`, and anything else from `options`. */
 const serve = (
@@ -86,6 +90,7 @@ const serve = (
       viewRepository: REPOSITORY,
       listRuns: [],
       requiredContexts: REQUIRED,
+      mergeQueue: { queue: null, unavailable: null },
       ...options.replies,
     },
   })
@@ -142,7 +147,7 @@ it('gives a ready stack as one target after the pull requests, and no layer as a
   expect(
     ran.document.targets.map((target: { number?: number }) => target.number ?? 'stack'),
   ).toEqual([468, 'stack'])
-  expect(ran.document.targets.at(-1)).toEqual(STACK)
+  expect(ran.document.targets.at(-1)).toEqual(TARGET)
   expect(ran.document.not_ready).toEqual([])
 })
 
@@ -153,7 +158,7 @@ it('drops a merged entry from the layers, and gives a closed one as not ready', 
   const landed = await status(serve([merged, layer(470), layer(471)]))
   const shut = await status(serve([layer(470), layer(471), closed]))
 
-  expect(landed.document.targets).toEqual([STACK])
+  expect(landed.document.targets).toEqual([TARGET])
   expect(shut.document.not_ready).toEqual([
     { ...STACK, failing: [{ number: 473, reasons: ['is closed'] }] },
   ])
@@ -196,7 +201,7 @@ it('leaves out a stack with a missing approval or an unresolved thread, but not 
       ],
     },
   ])
-  expect(forced.document.targets).toEqual([STACK])
+  expect(forced.document.targets).toEqual([TARGET])
   expect(forced.document.not_ready).toEqual([])
 })
 
@@ -214,7 +219,7 @@ it('judges an upper layer by the rules of the stack base, not of its own base', 
   expect(byBase.document.not_ready).toEqual([
     { ...STACK, failing: [{ number: 471, reasons: ['needs an approval'] }] },
   ])
-  expect(byOwn.document.targets).toEqual([STACK])
+  expect(byOwn.document.targets).toEqual([TARGET])
 })
 
 it('reads the required checks of the stack base, not of a layer', async () => {
@@ -266,7 +271,7 @@ it('keeps a stack whose required check is pending or has not reported', async ()
     ]),
   )
 
-  expect(pending.document.targets).toEqual([STACK])
+  expect(pending.document.targets).toEqual([TARGET])
 })
 
 it('judges a stack by its rollup alone when the required checks cannot be read', async () => {
@@ -276,7 +281,7 @@ it('judges a stack by its rollup alone when the required checks cannot be read',
     serve(red, { replies: { requiredContexts: { contexts: [], unavailable: 'gh: HTTP 502' } } }),
   )
 
-  expect(ran.document.targets).toEqual([STACK])
+  expect(ran.document.targets).toEqual([TARGET])
   expect(ran.stderr).toBe(
     'the required checks of main are unavailable: gh: HTTP 502; the rollup alone decides\n',
   )
@@ -288,7 +293,7 @@ it('with a label, takes a stack when one layer carries it, and reads the other l
   const taken = await status(serve([labelled, layer(471)]), 'ship')
   const other = await status(serve([layer(470), layer(471)]), 'ship')
 
-  expect(taken.document.targets).toEqual([STACK])
+  expect(taken.document.targets).toEqual([TARGET])
   expect(other.document.targets).toEqual([])
 })
 
@@ -319,7 +324,7 @@ it('says when the stacks could not all be read, and keeps each stack it read', a
     }),
   )
 
-  expect(ran.document.targets).toEqual([{ stack: 9, base: 'main', layers: [8] }])
+  expect(ran.document.targets).toEqual([{ stack: 9, base: 'main', layers: [8], files: null }])
   expect(ran.stderr).toBe(
     'a stack may be left out: the stacks could not all be read: 1 pullRequests row(s) could not be read\n',
   )
@@ -330,5 +335,8 @@ it('gives two stacks on one base, each in the order it was read', async () => {
 
   const ran = await status(serve([layer(470), layer(471), second(8)]))
 
-  expect(ran.document.targets).toEqual([STACK, { stack: 9, base: 'main', layers: [8] }])
+  expect(ran.document.targets).toEqual([
+    TARGET,
+    { stack: 9, base: 'main', layers: [8], files: null },
+  ])
 })
