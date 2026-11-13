@@ -721,6 +721,40 @@ each tick of `watch` and `pr-state`, for a question that only `pr-state` asks.
 `GhError`, as the other writes do. A status cannot be deleted, and GitHub keeps 1000 at most for
 one sha and context.
 
+### The merge queue reads
+
+```ts
+const { queue } = await gh.mergeQueue({ branch: 'main' }) // null: no queue
+const { path } = await gh.workflowRunPath({ run: '43462283009' }) // '.github/workflows/ci.yml'
+const { text } = await gh.fileText({ path: '.github/workflows/ci.yml', ref: 'main' })
+const { files } = await gh.pullRequestFiles({ pullRequest: 510 })
+const { entry } = await gh.mergeQueueEntry({ pullRequest: 510 }) // null: not in a queue
+const { rows } = await gh.mergeQueueRemovals({ pullRequest: 510 }) // [{ reason, createdAt }]
+```
+
+These are the reads of #503. `shepherd-status` reads the first four. None of them throws. A
+read that failed is null, with the reason in `unavailable`.
+
+- `mergeQueue` reads the endpoint of `requiredContexts`, and answers the first `merge_queue`
+  rule with its seven parameters in camel case. No such rule, and the plan-limit 403, are a null
+  `queue` with no reason. A rule with a parameter of the wrong type costs the read. It is a
+  second method, for the reason `requiredReviews` gives, so it is one more request.
+- `workflowRunPath` reads `actions/runs/{run}` for the workflow file of one run. A check name is
+  not a workflow name: a matrix leg is named by its matrix value. So a caller maps a check to
+  its workflow through the run in the check's link.
+- `fileText` reads `contents/{path}?ref={ref}`, with each path segment encoded, and decodes the
+  base64. A directory, a file of more than 1 MB (REST gives it with the encoding `none` and no
+  content), and a 404 are a null `text`. An empty text is only an empty file.
+- `pullRequestFiles` reads REST `pulls/{number}/files`, 100 a page, with the old path of a
+  renamed file. It is not `gh pr diff --name-only`, which fetches the whole diff and gives no
+  sign of a cut. REST lists 3000 files at most. A list at that size, and a page that fails, are a
+  null `files`: a short list cannot prove that two pull requests share no file.
+- `mergeQueueEntry` reads `PullRequest.mergeQueueEntry { enqueuedAt state position }`. A null
+  entry on a pull request that GraphQL gives is an answer. A pull request it does not give is not.
+- `mergeQueueRemovals` reads the newest 100 `RemovedFromMergeQueueEvent` items, oldest first.
+  `reason` is a free `String` in the schema, and can be null, so a caller matches it as text.
+  When older removals were not read, `unavailable` says so.
+
 ## The TypeSafe transport and the Jev client
 
 ```ts

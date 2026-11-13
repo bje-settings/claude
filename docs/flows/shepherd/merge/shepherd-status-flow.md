@@ -1,6 +1,6 @@
 ---
 type: Reference
-description: How `shepherd.ts shepherd-status` reads one repository's open, auto-merge pull requests and its stacks into targets and a not-ready list, one label at most. It also shows each way it stops.
+description: How `shepherd.ts shepherd-status` reads one repository's open, auto-merge pull requests and its stacks into targets and a not-ready list, one label at most, with the merge queue of each base. It also shows each way it stops.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
@@ -55,9 +55,21 @@ flowchart TD
     S1 -->|Read| S3{An open layer is a draft, or a closed entry,<br/>or a required check of the stack base failed,<br/>or without --all a layer needs an approval<br/>or has unresolved threads by the rules of the stack base?}
     S3 -->|Yes| S4[not_ready: the stack, each layer, each reason]
     S3 -->|No| S5[targets: the stack, after the pull requests]
-    S2 --> P([Print one JSON document, exit 0])
-    S4 --> P
-    S5 --> P
+    S2 --> Q1
+    S4 --> Q1
+    S5 --> Q1
+    Q1{For each base the targets use:<br/>a merge queue rule applies?}
+    Q1 -->|Rules cannot be read| Q2[queue: present null, serial;<br/>stderr says why]
+    Q1 -->|No| Q3[queue: present false, serial;<br/>no workflow read]
+    Q1 -->|Yes| Q4{Each required check maps, through the run<br/>in its link on a target head, to a workflow<br/>with a merge_group trigger at the base?}
+    Q4 -->|No, or a read fails| Q5[queue: serial, each blocking check<br/>with its reason and workflow]
+    Q4 -->|Yes| Q6[queue: mode queue;<br/>read the changed files of each target]
+    Q6 -->|A read fails| Q7[files: null; stderr says why]
+    Q2 --> P([Print one JSON document, exit 0])
+    Q3 --> P
+    Q5 --> P
+    Q6 --> P
+    Q7 --> P
     X[Any error it did not expect] --> Z6([internal error on stderr, exit 3]):::stop
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
@@ -72,3 +84,6 @@ crash as an answer.
 A stack is judged by the rules of its base, for every layer, as GitHub merges it (ruling 4 on
 #469). A required check that is still pending, or has not reported, is no reason: the stack goes
 to the loop, and `shepherd-stack wait` waits for it.
+
+The queue report is for the loop to read (#503). This command enqueues nothing. A base in serial
+mode reads no changed files, so `files` is null on each of its targets.

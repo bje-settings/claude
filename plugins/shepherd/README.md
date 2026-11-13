@@ -198,7 +198,11 @@ node <plugin>/scripts/shepherd.ts shepherd-stack <path> <stack> state|update|wai
 
 `shepherd-status` changes nothing. It prints `targets` and `not_ready`. Each target carries
 `approval` (`met`, `missing`, `not_required`, or `null`) and `threads` (`resolved`, `unresolved`,
-`not_required`, or `null`). `shepherd-pr` writes only through one action: `rebase` (the branch
+`not_required`, or `null`). It also prints `queue`, one entry for each base the targets use. The
+entry says whether a merge queue rule applies, and gives its parameters. Its `mode` is `queue`
+only when each required check comes from a workflow with a `merge_group` trigger. Otherwise it is
+`serial`, and `blocking` names each check and why. Each target also carries `files`, its changed
+files, when its base is in queue mode, and `null` when it is not. `shepherd-pr` writes only through one action: `rebase` (the branch
 update). It refuses that when its precondition does not hold: the pull request is not open.
 `state` reads the review rules of the base, and reports `approval` and `threads` the same way.
 It also reads the ref of the head branch, for a pull request that is not from a fork. It reports
