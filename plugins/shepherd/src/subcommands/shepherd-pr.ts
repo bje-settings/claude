@@ -468,8 +468,9 @@ cannot make it act on the wrong pull request.
             failed, so nothing was proven). An entry already there is
             \`queued\`, with no write. Then \`enqueued\` with \`entry\`. When
             the write gives no entry, it reads the entry once more: an
-            entry is \`queued\`, a failed read is \`unread\`, and else it is
-            \`refused\` with GitHub's own words in \`reason\`. It can only add
+            entry is \`queued\`, a failed read is \`unconfirmed\` (the write
+            can have landed), and else it is \`refused\` with GitHub's own
+            words in \`reason\`. It can only add
             to a queue. It never merges.
 
 The queue check of shepherd-status reads required status checks only. A
@@ -1603,7 +1604,7 @@ export class Shepherd {
       }
       if (after.unavailable !== null) {
         return refuse(
-          'unread',
+          'unconfirmed',
           `the enqueue gave no entry (${written.unavailable}), and the entry could not be ` +
             `read again: ${after.unavailable}`,
         )

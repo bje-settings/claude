@@ -50,7 +50,7 @@ flowchart TD
         QF -->|Merged| QFM([Merged, with its time in the queue])
         QF -->|Not added, checks failed| QFF[Fix it through the serial loop] --> QF
         QF -->|Not added for three reads| QFS([Skipped: not added to the queue]):::stop
-        QF -->|Not in the queue for two reads,<br/>and nothing will add it| QFS
+        QF -->|Not in the queue, and nothing will add it| QFN([Recorded as step 1 says, or skipped]):::stop
         QF -->|Dropped, a first time| QD{Drop class}
         QD -->|merge_conflict| QD1[Merge the base, resolve, wait for CI]
         QD -->|stack_invalidated| QD2[Fix the layer to fix: the oldest drop<br/>of a class other than stack_invalidated]
@@ -115,6 +115,7 @@ flowchart TD
     V -->|No: a cause was named| Z3([Table per repo, with the queue state and the time<br/>in the queue of each queue target, and each check<br/>that keeps a base with a queue serial;<br/>suggest resolve-alerts when something merged])
     QFM --> D
     QFS --> D
+    QFN --> D
     QDS --> D
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000

@@ -746,7 +746,7 @@ describe('enqueue', () => {
     })
   })
 
-  it('answers unread when a write gave no entry and the entry cannot be read again', async () => {
+  it('answers unconfirmed when a write gave no entry and the entry cannot be read again', async () => {
     const result = await drive((_sandbox, repo) => ({
       argv: [repo, '1', 'enqueue', HEAD],
       gh: queueGh(
@@ -764,7 +764,7 @@ describe('enqueue', () => {
 
     expect(result.document).toMatchObject({
       ok: false,
-      result: 'unread',
+      result: 'unconfirmed',
       detail:
         'refused: the enqueue gave no entry (gh timed out after 60s), and the entry could not ' +
         'be read again: gh: HTTP 502',

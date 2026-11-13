@@ -295,13 +295,12 @@ record it. On `accepted`, the layers are in the queue.
 - On `pending`, call `queue-wait` again. For a pull request, three `pending` results in a row
   with `queue_state` `waiting`, and no change in `pr.headRefOid`, is skipped ("not added to the
   queue"), with `pr.mergeStateStatus` and `pr.checks.state`.
-- On `failed` (a pull request only), its checks failed, so GitHub does not add it. Call `wait`,
-  and act on it as steps 3 to 5 of the loop say. Once a `wait` gives `passed`, call `queue-wait`
-  again.
+- On `failed` (a pull request only), its checks failed, so GitHub does not add it. Call `wait`.
+  On `passed`, call `queue-wait` again, with no `settle`. On `failed`, do steps 4 and 5, then
+  `wait` again. On any other result, act on it as step 3 says.
 - On `removed`, go to "A drop". For a stack, `layer` is the layer to fix: the oldest drop whose
   class is not `stack_invalidated`. `drop` is its drop.
-- On `not_queued`, call `queue-wait` once more: an entry can show late. A second `not_queued`
-  means that nothing will add it. Then re-read `state` and record it as step 1 says. A stack is
+- On `not_queued`, nothing will add it. Re-read `state` and record it as step 1 says. A stack is
   skipped, with `layers`.
 - On `gone` (a stack), no layer is open. Call the `shepherd-pr` action `merged` on each layer of
   the `merge` report. When each one reads `merged: true`, record the stack as merged.

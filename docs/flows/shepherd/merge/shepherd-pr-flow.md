@@ -77,8 +77,8 @@ flowchart TD
         EE -->|No| EW[enqueuePullRequest with expectedHeadOid;<br/>never jump]
         EW -->|An entry| EOK([ok true: enqueued, exit 0])
         EW -->|No entry| EA{Read the entry once more}
-        EA -->|An entry| EQD
-        EA -->|Could not be read| EU
+        EA -->|An entry| EAQ([ok true: queued, after the write, exit 0])
+        EA -->|Could not be read| EAU([ok false: unconfirmed; the write<br/>can have landed, exit 0]):::stop
         EA -->|None| ER([ok false: refused, GitHub's words, exit 0]):::stop
     end
 

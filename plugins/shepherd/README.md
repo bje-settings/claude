@@ -203,7 +203,8 @@ Each drop gets one action, at most once per target:
 `shepherd-pr enqueue` puts a single pull request in again. It is the GraphQL `enqueuePullRequest`
 mutation, with the head the agent read as `expectedHeadOid`. It refuses first, with no write: a
 base with no queue, a pull request that is not open, a layer of a stack, or a head that moved. A
-write that gives no entry can still have landed, so it then reads the entry once more. It never
+write that gives no entry can still have landed. So it then reads the entry once more, and a read
+that fails is `unconfirmed`. It never
 sets `jump`, and it never merges. It is not `gh pr merge`, which merges at once when the
 queue rule goes away during a run.
 
