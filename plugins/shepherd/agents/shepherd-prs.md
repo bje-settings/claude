@@ -295,10 +295,9 @@ put in.
 
 **Follow a target.** Call `queue-wait` and act on `result`:
 - On `merged`, record it, with `queue_seconds`.
-- On `pending`, call `queue-wait` again. For a pull request, count each `pending` with
-  `queue_state` `waiting` whose `pr.checks.state` is not `pending`. Three in a row with no change
-  in `pr.headRefOid` is skipped ("not added to the queue"). Record `pr.mergeStateStatus` and
-  `pr.checks.state` with it.
+- On `pending`, call `queue-wait` again. For a pull request, three `pending` results in a row
+  with `queue_state` `waiting`, and no change in `pr.headRefOid`, is skipped ("not added to the
+  queue"), with `pr.mergeStateStatus` and `pr.checks.state`.
 - On `failed` (a pull request only), its checks failed, so GitHub does not add it. Call `wait`.
   On `passed`, call `queue-wait` again, with no `settle`. On `failed`, do steps 4 and 5, then
   `wait` again. On any other result, act on it as step 3 says. So a `behind` goes to the step 2
