@@ -90,7 +90,8 @@ change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullReque
 `requiredReviews`, `viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`, `branchRef`,
 `listRunJobs`, `commitDate`, `listOpenStacks`, `mergeMethods`, `mergeStack`,
 `listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`, `mergeQueue`,
-`workflowRunPath`, `fileText`, `pullRequestFiles`, `mergeQueueEntry`, `mergeQueueRemovals`.
+`workflowRunPath`, `fileText`, `pullRequestFiles`, `mergeQueueEntry`, `mergeQueueRemovals`,
+`enqueuePullRequest`.
 
 `issueStates` answers with a record, `{ states, unavailable }`. It never throws.
 So a test has nothing else to register beside its one reply.
@@ -119,7 +120,8 @@ The merge queue reads of #503 never throw either. `mergeQueue` answers `{ queue,
 `workflowRunPath` `{ path, unavailable }`, `fileText` `{ text, unavailable }`, `pullRequestFiles`
 `{ files, unavailable }`, `mergeQueueEntry` `{ entry, unavailable }`, and `mergeQueueRemovals`
 `{ rows, unavailable }`. A null value with no reason is an answer for `mergeQueue` (no queue) and
-`mergeQueueEntry` (not in a queue).
+`mergeQueueEntry` (not in a queue). `enqueuePullRequest` is a write that never throws, as
+`mergeStack` is: it answers `{ entry, unavailable }`.
 
 `missing` is true only when GitHub itself said the number does not exist. It is false for every
 other reason the read came back short. A test that registers a reply must say which case it means.
