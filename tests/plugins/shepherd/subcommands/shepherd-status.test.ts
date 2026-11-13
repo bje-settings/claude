@@ -1075,7 +1075,17 @@ it('reports queue mode for a base whose required check comes from a merge_group 
   expect(result.stderr).toBe('')
   const document = JSON.parse(result.stdout)
   expect(document.queue).toEqual({
-    main: { present: true, rule: QUEUE.queue, mode: 'queue', blocking: [], unavailable: null },
+    main: {
+      present: true,
+      rule: QUEUE.queue,
+      mode: 'queue',
+      blocking: [],
+      unavailable: null,
+      overlaps: [
+        { id: '1', shares: ['2'] },
+        { id: '2', shares: ['1'] },
+      ],
+    },
   })
   expect(document.targets.map((target: { files: unknown }) => target.files)).toEqual([
     ['package.json', 'pnpm-lock.yaml'],
@@ -1139,6 +1149,10 @@ it('reads the files only of a target whose own base is in queue mode', async () 
   const document = JSON.parse(result.stdout)
   expect(document.queue.main.mode).toBe('queue')
   expect(document.queue.release.mode).toBe('serial')
+  // Only #1 is on the queue-mode base. #2's null files would share with
+  // every target, but #2 is on a serial base, so it is not passed in.
+  expect(document.queue.main.overlaps).toEqual([{ id: '1', shares: [] }])
+  expect(document.queue.release).not.toHaveProperty('overlaps')
   expect(document.targets.map((target: { files: unknown }) => target.files)).toEqual([
     ['package.json'],
     null,

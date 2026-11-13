@@ -8,10 +8,13 @@ description: >
   every layer. Rebase each pull request, resolve its conflicts by merging the base branch into
   it, wait for CI, and fix failures that the base caused. This applies to any pull request,
   whether a human or a bot authored it. Let auto-merge land each one before you move to the
-  next. Scope comes from the working directory. Inside a git repo, it shepherds that repo.
-  Outside one, it shepherds every immediate subdirectory that is a git repo, one subagent per
-  repo, in parallel. It never merges by hand, except a stack with gh stack merge. It never
-  enables auto-merge, never force pushes, and never bypasses a check.
+  next. When the base has a merge queue whose required checks all run on merge_group, send each
+  target through the queue instead, and act once on each drop. Scope comes from the working
+  directory. Inside a git repo, it shepherds that repo. Outside one, it shepherds every
+  immediate subdirectory that is a git repo, one subagent per repo, in parallel. It never merges
+  by hand, except a stack with gh stack merge. An enqueue is not a hand merge. It never enables
+  auto-merge, never force pushes, never removes a pull request from a queue, and never bypasses a
+  check.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" *) Agent
 argument-hint: "[label] [--all] [--dry-run]"
 disable-model-invocation: true
@@ -50,7 +53,8 @@ and its `reasons`), and stop here.
 
 Launch one `shepherd:shepherd-prs` agent per repo that has targets. Send them all in a single message, so
 they run in parallel. Each agent gets the repo path, the ordered targets from `targets` (each
-pull request number, and each stack as `stack:<s>`), `ci_seconds`, and whether `--all` is on,
+pull request number, and each stack as `stack:<s>`), `ci_seconds`, the `queue` object of the
+status document as it is (its `mode` and `overlaps` for each base), and whether `--all` is on,
 and returns a JSON report. The agent takes a stack as one unit, with
 `node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> <action>`. It does not run
 `status` itself. Do not start a second agent for the same repo. Do not shepherd a repo yourself. The
@@ -88,6 +92,12 @@ Collate the agents' JSON into one table per repo:
 | stack s | merged | each layer and its merge commit |
 | stack s | skipped | each layer that failed, and the requirement, or gh's own words |
 
+For each target of the agent's `queue` list, add two columns: its queue state (merged, queued,
+dropped with its class and reason, or skipped) and its `queue_seconds`. For each base whose
+`queue` from step 2 has `present` true and `mode` `serial`, name each `blocking` check with its
+`reason` and `workflow`: the person adds the `merge_group` trigger. For each base whose `queue`
+has `unavailable` set, name it with those words: it took the serial loop.
+
 Then list each `not_ready` entry from step 2 as not shepherded, with its `reasons` ("needs an
 approval", "has unresolved review threads"). For a stack, name each `failing` layer and its
 `reasons`. Then list the `ci_seconds` each agent measured.
@@ -102,7 +112,9 @@ Never:
 - enable or disable auto-merge
 - merge a pull request by hand. The one exception is a stack: the agent runs `gh stack merge`
   through `shepherd-stack merge`, once every layer is ready, and GitHub applies the rules of the
-  base to it
+  base to it. An enqueue (through auto-merge, `gh stack merge`, or `shepherd-pr enqueue` after a
+  drop) is not a hand merge
+- remove a pull request from a merge queue, or put one at the front of it
 - bypass or re-run a required check
 - force-push, a stack included
 - change a repository's merge method

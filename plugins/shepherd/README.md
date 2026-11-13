@@ -1,7 +1,7 @@
 # shepherd
 
 Pull request merges: merge auto-merge pull requests and GitHub stacks one at a time, and wait on
-CI between merges.
+CI between merges. A base with a merge queue gets each target through the queue instead.
 
 ## `/shepherd:merge`
 
@@ -19,7 +19,8 @@ merge. GitHub applies the rules of the base to it, all layers or none.
 Serial is the point. A strict up-to-date rule puts every other open pull request behind after
 each merge. If you shepherd them in parallel, each merge costs a CI run per pull request. One at
 a time costs exactly one rebase each. A by-hand run of six Dependabot pull requests measured
-exactly that.
+exactly that. A merge queue does that serial work on GitHub, so a base with a queue takes the
+queue path (see "Queue mode").
 
 Scope comes from the working directory, as with `/gh:sync`:
 
@@ -174,10 +175,58 @@ No step force pushes. A probe on #469 showed that GitHub merges a stack whose la
 by a merge commit. `gh stack rebase`, `push` and `sync` each force push, so nothing here runs
 them.
 
+### Queue mode
+
+`shepherd-status` reports a `queue` for each base (#503). Its `mode` is `queue` only when a
+`merge_queue` rule applies and each required check comes from an Actions workflow with a
+`merge_group` trigger at the base. Then the queue tests each entry on top of the entries ahead of
+it, and merges them in groups. So the agent does not rebase a target or wait for its CI first.
+
+| Target | What happens |
+| --- | --- |
+| A pull request | GitHub adds it to the queue by itself, through its auto-merge, when the rules of the base are met. The agent resolves a conflict only (`DIRTY`), then follows it with `shepherd-pr queue-wait` to a merge or a drop. GitHub orders these entries. Shepherd does not hold one back. |
+| A stack | The steps of "A stack, step by step", then `shepherd-stack merge` (`gh stack merge`). Then `shepherd-stack queue-wait` follows every layer. Never `gh pr merge` on a layer: GitHub refuses auto-merge on a stacked pull request. |
+
+Shepherd puts a target in itself with each `shepherd-stack merge` and each re-enqueue. Two such
+targets that share a changed file go in one at a time: the second waits until the first merges or
+drops. Targets that share no file go in at once. `shepherd-status` gives the overlap of each base
+in queue mode as `overlaps`.
+
+Each drop gets one action, at most once per target:
+
+| Drop | Action |
+| --- | --- |
+| `merge_conflict` | Merge the base into the head and resolve, as for a conflict in the loop. Wait for CI, then put it in again. |
+| `stack_invalidated` | The queue removes a stack as one unit, so each layer above a dropped layer goes too. `shepherd-stack queue-wait` names the layer to fix: the oldest drop whose class is not `stack_invalidated`. The agent fixes that layer, then puts the stack in again. |
+| `invalid_merge_commit`, or any other reason | Put it in again once, when the head is the same and CI is green. Otherwise it is skipped, with GitHub's own words. |
+
+`shepherd-pr enqueue` puts a single pull request in again. It is the GraphQL `enqueuePullRequest`
+mutation, with the head the agent read as `expectedHeadOid`. It refuses first, with no write.
+The refusals are a base with no queue, a pull request that is not open, a layer of a stack, and a
+head that moved. GitHub's errors are `refused`. A timeout, or a reply with no entry and no error,
+can still have landed. So it then reads the entry once more. An entry is `queued`, and else it is
+`unconfirmed` (`ok: false`). The agent then follows the pull request with `queue-wait`, and does
+not enqueue again. It never sets `jump`, and it never merges. It is not `gh pr merge`, which
+merges at once when the queue rule goes away during a run.
+
+The report gives each target its queue state (merged, queued, dropped with its reason, or
+skipped) and its time in the queue.
+
+A base in `serial` mode, or a queue report that could not be read, takes the loop above, as it
+is. When a base has a queue and stays serial, the report names each blocking check and its
+workflow. The person adds the `merge_group` trigger.
+
+Two limits are known. A required workflow of a ruleset is not part of the queue check (#514).
+Only required status checks are read. So a base whose required workflow has no `merge_group`
+trigger can read as queue mode, and its entries then time out. The rules of a branch are read as
+one page of 30 (#513). So a branch with more rules can hide a `merge_queue` rule.
+
 ### What it never does
 
 Never:
-- merge by hand, except a stack with `shepherd-stack merge`
+- merge by hand, except a stack with `shepherd-stack merge`. An enqueue through auto-merge,
+  `gh stack merge` or `shepherd-pr enqueue` is not a hand merge
+- remove a pull request from a merge queue, or put one at its front (`jump`)
 - enable or disable auto-merge
 - bypass or re-run a required check
 - edit labels
@@ -193,7 +242,10 @@ skill and the agent use `${CLAUDE_PLUGIN_ROOT}` for it.
 ```bash
 node <plugin>/scripts/shepherd.ts shepherd-status <path> [label] [--all]   # the work list, as JSON
 node <plugin>/scripts/shepherd.ts shepherd-pr <path> <n> state|rebase|wait|settle|merged
+node <plugin>/scripts/shepherd.ts shepherd-pr <path> <n> queue|queue-wait [<since>]
+node <plugin>/scripts/shepherd.ts shepherd-pr <path> <n> enqueue <head>
 node <plugin>/scripts/shepherd.ts shepherd-stack <path> <stack> state|update|wait|merge
+node <plugin>/scripts/shepherd.ts shepherd-stack <path> <stack> queue|queue-wait [<since>]
 ```
 
 `shepherd-status` changes nothing. It prints `targets` and `not_ready`. Each target carries
@@ -202,8 +254,12 @@ node <plugin>/scripts/shepherd.ts shepherd-stack <path> <stack> state|update|wai
 entry says whether a merge queue rule applies, and gives its parameters. Its `mode` is `queue`
 only when each required check comes from a workflow with a `merge_group` trigger. Otherwise it is
 `serial`, and `blocking` names each check and why. Each target also carries `files`, its changed
-files, when its base is in queue mode, and `null` when it is not or when a read fails. `shepherd-pr` writes only through one action: `rebase` (the branch
-update). It refuses that when its precondition does not hold: the pull request is not open.
+files, when its base is in queue mode, and `null` when it is not or when a read fails. The entry
+of a base in queue mode also has `overlaps`: for each target on that base, the targets on that
+base that share a file with it. `shepherd-pr` writes through two actions: `rebase` (the branch
+update) and `enqueue` (the queue write). Each refuses when its preconditions do not hold. `queue`
+and `queue-wait` read the queue entry and the removals of one pull request, and class each drop
+as `merge_conflict`, `stack_invalidated`, `invalid_merge_commit` or `other`.
 `state` reads the review rules of the base, and reports `approval` and `threads` the same way.
 It also reads the ref of the head branch, for a pull request that is not from a fork. It reports
 the ref's commit as `branchRefOid`, and `inSync`: false when that commit is not `headRefOid`.
@@ -237,13 +293,14 @@ read that fails never decides a verdict: it gives `ok: false`, or `result` `unre
 `merge`. `merge` gives `merged`, `accepted` (GitHub took the merge, and a layer is not
 merged yet), `refused` with gh's `reason` (or why gh could not run or was killed), or
 `not_ready` with each layer and reason. A `not_ready` with an empty `failing` is a base that
-allows no merge method, and `detail` says so.
+allows no merge method, and `detail` says so. `queue` and `queue-wait` read the queue of each
+layer, and name the layer to fix. `gone` means no layer of the stack is open.
 `node <plugin>/scripts/shepherd.ts shepherd-stack --help` has the whole contract.
 
 `node <plugin>/scripts/shepherd.ts shepherd-pr --help` lists the environment knobs
 (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_WAIT_POLL`, `SHEPHERD_STALL_FLOOR`,
 `SHEPHERD_LOG_LINES`, `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`, `SHEPHERD_REBASE_BOUND`,
-`SHEPHERD_REBASE_POLL`).
+`SHEPHERD_REBASE_POLL`, `SHEPHERD_QUEUE_BOUND`, `SHEPHERD_QUEUE_POLL`).
 
 Repository discovery is shared with `/gh:sync`. Both skills resolve their scope by the same rule,
 `lib/discover.ts` in the marketplace repository, and each plugin holds a copy of it.

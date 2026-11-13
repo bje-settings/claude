@@ -1052,6 +1052,7 @@ it("defaults to the root lib's own process runner", () => {
     'commitDate',
     'compareCommits',
     'createCommitStatus',
+    'enqueuePullRequest',
     'fileText',
     'issueStates',
     'listIssues',

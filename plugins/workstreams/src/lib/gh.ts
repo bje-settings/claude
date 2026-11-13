@@ -648,7 +648,19 @@ export interface GhResults {
   }
   /** Each time a merge queue removed one pull request, oldest first. */
   mergeQueueRemovals: PagedResult<MergeQueueRemoval>
+  /** The queue entry that an enqueue made, or null with why. */
+  enqueuePullRequest: {
+    readonly entry: MergeQueueEntry | null
+    readonly unavailable: string | null
+    /** Why `entry` is null, or null when it is not: `refused` (GitHub
+     *  answered with errors), `unsent` (no mutation was sent), or `unknown`
+     *  (the mutation was sent, and the reply does not say what it did). */
+    readonly failure: EnqueueFailure | null
+  }
 }
+
+/** Why an enqueue gave no entry. See {@link GhResults.enqueuePullRequest}. */
+export type EnqueueFailure = 'refused' | 'unsent' | 'unknown'
 
 export type GhEndpoint = keyof GhResults
 
@@ -1050,6 +1062,25 @@ export interface GhClient {
   mergeQueueRemovals(query: {
     readonly pullRequest: number
   }): Promise<GhResults['mergeQueueRemovals']>
+  /**
+   * Add one pull request to the merge queue of its base, through the
+   * GraphQL `enqueuePullRequest` mutation (answer 2 on #503). This is a
+   * write. It reads the node id of the pull request first, then sends the
+   * mutation with `expectedHeadOid`, so GitHub refuses a head that moved.
+   * It never sets `jump`. It can only add to a queue: it never merges.
+   *
+   * Never throws, as {@link GhClient.mergeStack} does not. A null `entry`
+   * has a reason in `unavailable` and a `failure`. `refused` is a reply with
+   * GitHub's errors and no entry. `unsent` is a node id that could not be
+   * read, so no mutation went out. `unknown` is a mutation that timed out,
+   * a reply that is not JSON, or a reply with no entry and no error: the
+   * write can have landed. A reply with an entry and errors gives both: the
+   * entry is the answer.
+   */
+  enqueuePullRequest(query: {
+    readonly pullRequest: number
+    readonly expectedHeadOid: string
+  }): Promise<GhResults['enqueuePullRequest']>
 }
 
 /**
@@ -1809,6 +1840,19 @@ const MERGE_QUEUE_REMOVALS_QUERY = `query($owner: String!, $name: String!, $numb
         nodes { ... on RemovedFromMergeQueueEvent { reason createdAt } }
       }
     }
+  }
+}`
+
+/** The node id of one pull request, which the enqueue mutation takes. */
+const PULL_REQUEST_ID_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { id } }
+}`
+
+/** The enqueue write (answer 2 on #503). It names no `jump`, so GitHub
+ *  puts the entry at the back of the queue. */
+const ENQUEUE_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
+  enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) {
+    mergeQueueEntry { enqueuedAt state position }
   }
 }`
 
@@ -3808,6 +3852,64 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       }
       if (answer.unavailable !== null) reasons.push(answer.unavailable)
       return { rows, unavailable: joinedReasons(reasons) }
+    },
+
+    // Two calls: the node id, then the mutation. The mutation answers
+    // `data.enqueuePullRequest`, not `data.repository`, so it does not go
+    // through `queryOnce`. gh exits 1 on a refusal and prints the body, so
+    // the body is read whatever the status.
+    enqueuePullRequest: async (query) => {
+      const found = await queryOnce(
+        PULL_REQUEST_ID_QUERY,
+        ['-F', `number=${query.pullRequest}`],
+        'pullRequest',
+      )
+      if (found.data === null) {
+        return { entry: null, unavailable: found.unavailable, failure: 'unsent' }
+      }
+      const id = asText(asRecord(found.data.pullRequest)?.id)
+      if (id === null) {
+        const said = `pull request ${query.pullRequest} gave no node id`
+        return {
+          entry: null,
+          unavailable: found.unavailable === null ? said : `${said}: ${found.unavailable}`,
+          failure: 'unsent',
+        }
+      }
+      const result = await invoke([
+        'api',
+        'graphql',
+        '-f',
+        `id=${id}`,
+        '-f',
+        `head=${query.expectedHeadOid}`,
+        '-f',
+        `query=${ENQUEUE_MUTATION}`,
+      ])
+      const unknown = { entry: null, failure: 'unknown' } as const
+      if (result.timedOut) return { ...unknown, unavailable: accountOf(result, options.boundMs) }
+      let reply: Record<string, unknown> | undefined
+      try {
+        reply = asRecord(JSON.parse(result.stdout))
+      } catch {
+        return { ...unknown, unavailable: accountOf(result, options.boundMs) }
+      }
+      const errorsField = reply?.errors
+      const messages = (Array.isArray(errorsField) ? errorsField : [])
+        .map((entry) => asRecord(entry)?.message)
+        .filter((message): message is string => typeof message === 'string')
+      const written = asRecord(asRecord(reply?.data)?.enqueuePullRequest)?.mergeQueueEntry
+      const entry = readMergeQueueEntry(written)
+      if (entry === undefined) {
+        const said = joinedReasons(messages)
+        return said === null
+          ? {
+              ...unknown,
+              unavailable: `GitHub gave no queue entry for pull request ${query.pullRequest}`,
+            }
+          : { entry: null, unavailable: said, failure: 'refused' }
+      }
+      return { entry, unavailable: joinedReasons(messages), failure: null }
     },
   }
   return client

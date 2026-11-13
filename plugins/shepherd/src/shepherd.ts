@@ -1499,6 +1499,11 @@ export const fileOverlaps = (
       .map((other) => other.id),
   }))
 
+/** The id of a target, as the agent gets it: the number of a pull
+ *  request, or `stack:<s>` for a stack. */
+export const targetId = (target: PullSummary | StackTarget): string =>
+  'stack' in target ? `stack:${target.stack}` : String(target.number)
+
 /** A target with its changed files: null when they were not read. */
 export type FilesTarget = (PullSummary | StackTarget) & { readonly files: readonly string[] | null }
 
@@ -1507,8 +1512,35 @@ export type FilesTarget = (PullSummary | StackTarget) & { readonly files: readon
 export interface QueueStatusDocument extends Omit<StatusDocument, 'targets'> {
   readonly targets: readonly FilesTarget[]
   /** One report per base the targets use, by base. */
-  readonly queue: Readonly<Record<string, QueueReport>>
+  readonly queue: Readonly<Record<string, QueueReport | OverlapReport>>
 }
+
+/** The report of a base in queue mode, with the targets on that base that
+ *  share a changed file (#503). */
+export type OverlapReport = QueueReport & {
+  readonly overlaps: readonly { readonly id: string; readonly shares: readonly string[] }[]
+}
+
+/**
+ * `document` with `overlaps` on the end of the report of each base in
+ * queue mode: for each target on that base, the targets on that base that
+ * share a changed file with it, from {@link fileOverlaps}. Only the targets
+ * of that base go in, since a target with null `files` shares with every
+ * target it meets. A base in serial mode gets no `overlaps`, so its report
+ * is unchanged.
+ */
+export const withOverlaps = (document: QueueStatusDocument): QueueStatusDocument => ({
+  ...document,
+  queue: Object.fromEntries(
+    Object.entries(document.queue).map(([base, report]) => {
+      if (report.mode !== 'queue') return [base, report]
+      const sets = document.targets
+        .filter((target) => targetBase(target) === base)
+        .map((target) => ({ id: targetId(target), files: target.files }))
+      return [base, { ...report, overlaps: fileOverlaps(sets) }]
+    }),
+  ),
+})
 
 /**
  * `document` with `files` on the end of each target and `queue` on the end

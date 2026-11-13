@@ -61,6 +61,10 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['pullRequestFiles', (client) => client.pullRequestFiles({ pullRequest: 510 })],
   ['mergeQueueEntry', (client) => client.mergeQueueEntry({ pullRequest: 510 })],
   ['mergeQueueRemovals', (client) => client.mergeQueueRemovals({ pullRequest: 510 })],
+  [
+    'enqueuePullRequest',
+    (client) => client.enqueuePullRequest({ pullRequest: 510, expectedHeadOid: 'a'.repeat(40) }),
+  ],
 ]
 
 it('answers with the reply registered for the endpoint', async () => {
@@ -214,6 +218,11 @@ it('answers every endpoint it declares', async () => {
     pullRequestFiles: { files: ['plugins/gh/.claude-plugin/plugin.json'], unavailable: null },
     mergeQueueEntry: { entry: null, unavailable: null },
     mergeQueueRemovals: { rows: [], unavailable: null },
+    enqueuePullRequest: {
+      entry: { enqueuedAt: '2026-11-13T17:00:00Z', state: 'QUEUED', position: 1 },
+      unavailable: null,
+      failure: null,
+    },
   })
 
   for (const [endpoint, call] of CALLS) {

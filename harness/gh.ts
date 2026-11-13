@@ -165,5 +165,6 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     pullRequestFiles: async () => answer(replies, 'pullRequestFiles'),
     mergeQueueEntry: async () => answer(replies, 'mergeQueueEntry'),
     mergeQueueRemovals: async () => answer(replies, 'mergeQueueRemovals'),
+    enqueuePullRequest: async () => answer(replies, 'enqueuePullRequest'),
   }
 }

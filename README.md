@@ -54,7 +54,7 @@ The plugin's own README has the detail, with the scripts the skills and hooks ru
     <th scope="row">Skills</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/shepherd#shepherdmerge"><code>/shepherd:merge</code></a>: merge every auto-merge-enabled PR one at a time, and each stack once every layer is ready, optionally by one label, then rebase and wait on CI between merges. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/shepherd#shepherdmerge"><code>/shepherd:merge</code></a>: merge every auto-merge-enabled PR one at a time, and each stack once every layer is ready, through the merge queue of the base when it has one, optionally by one label, then rebase and wait on CI between merges. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
       </ul>
     </td>
   </tr>

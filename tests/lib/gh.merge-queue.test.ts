@@ -557,3 +557,178 @@ describe('mergeQueueRemovals', () => {
     })
   })
 })
+
+describe('enqueuePullRequest', () => {
+  const HEAD = 'a'.repeat(40)
+  const ENTRY = { enqueuedAt: '2026-11-13T17:00:00Z', state: 'QUEUED', position: 2 }
+  const NODE = graphql({ id: 'PR_kwDO' })
+  const enqueued = (mergeQueueEntry: unknown, errors?: readonly unknown[]): RunResult =>
+    json({
+      data: { enqueuePullRequest: mergeQueueEntry === undefined ? null : { mergeQueueEntry } },
+      ...(errors === undefined ? {} : { errors }),
+    })
+
+  it('enqueues the pull request with the head the caller read, and never jumps', async () => {
+    // A stand-in GitHub: it gives the node id of #512 only, and an entry
+    // only to a mutation with that id and head, as strings, and no jump.
+    const pair = (args: readonly string[], flag: string, value: string): boolean =>
+      args.some((arg, at) => arg === value && args[at - 1] === flag)
+    const head = '1'.repeat(40)
+    const run: Runner = async (_command, args = []) => {
+      const query = args.at(-1) ?? ''
+      if (args[0] === 'repo') return REPO
+      if (query.startsWith('query=query')) {
+        return pair(args, '-F', 'number=512') ? NODE : graphql({ id: null })
+      }
+      const right =
+        pair(args, '-f', 'id=PR_kwDO') &&
+        pair(args, '-f', `head=${head}`) &&
+        query.includes('mutation($id: ID!, $head: GitObjectID!)') &&
+        query.includes(
+          'enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head })',
+        ) &&
+        !query.includes('jump')
+      return right ? enqueued(ENTRY) : enqueued(null, [{ message: 'wrong mutation' }])
+    }
+
+    await expect(
+      createGhClient({ run }).enqueuePullRequest({ pullRequest: 512, expectedHeadOid: head }),
+    ).resolves.toEqual({ entry: ENTRY, unavailable: null, failure: null })
+  })
+
+  it("gives GitHub's own words when it refuses the enqueue", async () => {
+    const { gh } = clientAnswering([
+      REPO,
+      NODE,
+      json(
+        { data: { enqueuePullRequest: null }, errors: [{ message: 'Head sha did not match' }] },
+        { status: 1 },
+      ),
+    ])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'Head sha did not match',
+      failure: 'refused',
+    })
+  })
+
+  it('names a reply with no entry and no error as no entry', async () => {
+    const { gh } = clientAnswering([REPO, NODE, enqueued(null)])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'GitHub gave no queue entry for pull request 512',
+      failure: 'unknown',
+    })
+  })
+
+  it('refuses an entry that is not the shape asked for', async () => {
+    const { gh } = clientAnswering([REPO, NODE, enqueued({ ...ENTRY, position: '2' })])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'GitHub gave no queue entry for pull request 512',
+      failure: 'unknown',
+    })
+  })
+
+  it('keeps an entry, and an error GitHub gave beside it', async () => {
+    const { gh } = clientAnswering([REPO, NODE, enqueued(ENTRY, [{ message: 'slow' }, 'odd'])])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({ entry: ENTRY, unavailable: 'slow', failure: null })
+  })
+
+  it('reads errors that are not a list as no message', async () => {
+    const { gh } = clientAnswering([REPO, NODE, json({ data: null, errors: 'denied' })])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'GitHub gave no queue entry for pull request 512',
+      failure: 'unknown',
+    })
+  })
+
+  it('reads a body that is not an object as no entry', async () => {
+    const { gh } = clientAnswering([REPO, NODE, json('text')])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'GitHub gave no queue entry for pull request 512',
+      failure: 'unknown',
+    })
+  })
+
+  it('gives what gh said when the mutation printed no JSON', async () => {
+    const { gh } = clientAnswering([REPO, NODE, BROKEN])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({ entry: null, unavailable: 'gh: HTTP 502', failure: 'unknown' })
+  })
+
+  it('names the bound when the mutation timed out, whatever it printed', async () => {
+    const { gh } = clientAnswering([
+      REPO,
+      NODE,
+      result({ timedOut: true, elapsedMs: 9, stdout: JSON.stringify({ data: {} }) }),
+    ])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'gh did not answer in 9 ms',
+      failure: 'unknown',
+    })
+  })
+
+  it('writes nothing when the node id could not be read', async () => {
+    // A write would answer the entry of the third reply.
+    const { gh } = clientAnswering([REPO, BROKEN, enqueued(ENTRY)])
+
+    await expect(
+      gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
+    ).resolves.toEqual({ entry: null, unavailable: 'gh: HTTP 502', failure: 'unsent' })
+  })
+
+  it('writes nothing for a pull request with no node id, and keeps the error beside it', async () => {
+    const { gh } = clientAnswering([
+      REPO,
+      graphql(null, [{ type: 'NOT_FOUND', path: ['repository', 'pullRequest'], message: 'gone' }]),
+      enqueued(ENTRY),
+    ])
+
+    await expect(gh.enqueuePullRequest({ pullRequest: 9, expectedHeadOid: HEAD })).resolves.toEqual(
+      {
+        entry: null,
+        unavailable: 'pull request 9 gave no node id: gone',
+        failure: 'unsent',
+      },
+    )
+  })
+
+  it('writes nothing for an id that is not text', async () => {
+    const { gh } = clientAnswering([REPO, graphql({ id: 7 }), enqueued(ENTRY)])
+
+    await expect(gh.enqueuePullRequest({ pullRequest: 9, expectedHeadOid: HEAD })).resolves.toEqual(
+      {
+        entry: null,
+        unavailable: 'pull request 9 gave no node id',
+        failure: 'unsent',
+      },
+    )
+  })
+})

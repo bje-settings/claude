@@ -32,7 +32,13 @@ import {
   unreportedRequired,
 } from '../shepherd.ts'
 import {
+  argumentRefusal,
+  dropWords,
   NUMBER_RE,
+  pollQueue,
+  type QueueDrop,
+  type QueueResult,
+  queueResult,
   readSettings,
   resolveRepository,
   Shepherd,
@@ -56,6 +62,8 @@ Usage:
   shepherd.ts shepherd-stack <path> <stack> update
   shepherd.ts shepherd-stack <path> <stack> wait
   shepherd.ts shepherd-stack <path> <stack> merge
+  shepherd.ts shepherd-stack <path> <stack> queue [<since>]
+  shepherd.ts shepherd-stack <path> <stack> queue-wait [<since>]
 
 <stack> is the stack number, from shepherd-status. Every action prints one
 JSON object: {"action", "repo", "stack", "ok", "detail", ...}. The open
@@ -101,9 +109,31 @@ stack \`base\`, not of its own base.
             reads MERGED, and \`accepted\` when GitHub took the merge but a
             layer is not merged yet (a merge queue, for one). \`layers\`
             gives each merge commit.
+  queue     shepherd-pr queue on each layer that is not closed, bottom
+            first, a merged one included, with the same <since>. \`layers\`
+            gives each read, as {number, result, entry, drop, enqueued_at,
+            left_at, queue_seconds}. \`result\` is merged (every layer
+            merged); removed (a layer dropped); queued (a layer can still
+            move in the queue); or not_queued (no layer is in the queue,
+            and none dropped). On removed, \`layer\` and \`drop\` name the
+            layer to fix. The queue removes a stack as one unit, and every
+            layer above a dropped layer goes with it (stack_invalidated).
+            So it is the oldest drop of another class, the bottom one of a
+            tie. When every drop is stack_invalidated, it is the oldest of
+            those. \`queue_seconds\` is the longest time of a layer. \`gone\`
+            (ok:true) when no open pull request is in the stack: after a
+            merge, read each layer of the merge report with shepherd-pr
+            merged. ok:false when a read failed, with \`layer\`.
+  queue-wait reads as queue does, with the poll and the bound of
+            shepherd-pr queue-wait, until the result is merged, removed or
+            not_queued. The layers come from the first read, so a stack
+            that merges in full during the wait reads merged. \`pending\`
+            at the bound. A bound that arrives on a failed read is
+            ok:false.
 
-This command never force pushes, never enables auto-merge, and never
-bypasses a check. Its writes are the branch updates and the stack merge.
+This command never force pushes, never enables auto-merge, never bypasses a
+check, and never removes a layer from a queue. Its writes are the branch
+updates and the stack merge.
 
 Environment: the SHEPHERD_* variables of shepherd.ts shepherd-pr. The wait bound
 is for the whole stack.
@@ -121,6 +151,54 @@ interface StackOptions {
   readonly logLines: number
   readonly context: ShepherdContext
   readonly gh: ReturnType<ShepherdContext['createGh']>
+}
+
+/** One layer's queue read, as `queue` and `queue-wait` report it. */
+export interface LayerQueue {
+  readonly number: number
+  readonly result: QueueResult
+  readonly drop: QueueDrop | null
+  readonly [field: string]: unknown
+}
+
+/** What a queue read of a whole stack found. */
+export type StackQueueResult = 'merged' | 'removed' | 'queued' | 'not_queued'
+
+/**
+ * The verdict of the queue over the layers of a stack (#503), bottom first.
+ * `merged` when every layer merged. `removed` when a layer dropped: the
+ * queue removes a stack as one unit, and `stack_invalidated` drops each
+ * layer above a dropped layer. So `first` is the layer to fix: of the
+ * layers whose drop is not `stack_invalidated`, the one whose drop is the
+ * oldest, the bottom one of a tie. When every drop is
+ * `stack_invalidated`, it is the oldest of those. `queued` while a
+ * layer can still move in the queue. `not_queued` when no layer is in the
+ * queue and none dropped, so nothing will move.
+ */
+export const stackQueueResult = (
+  layers: readonly LayerQueue[],
+): { readonly result: StackQueueResult; readonly first: LayerQueue | null } => {
+  if (layers.every((layer) => layer.result === 'merged')) return { result: 'merged', first: null }
+  const dropped = layers.filter((layer) => layer.result === 'removed')
+  if (dropped.length > 0) {
+    // A `stack_invalidated` layer went with another layer, so it is never
+    // the cause while a layer with another class dropped.
+    const caused = dropped.filter((layer) => layer.drop?.class !== 'stack_invalidated')
+    const at = (layer: LayerQueue): number => Date.parse((layer.drop as QueueDrop).createdAt)
+    const pool = caused.length > 0 ? caused : dropped
+    const first = pool.reduce((best, layer) => (at(layer) < at(best) ? layer : best))
+    return { result: 'removed', first }
+  }
+  const open = layers.some((layer) => layer.result === 'queued' || layer.result === 'waiting')
+  return { result: open ? 'queued' : 'not_queued', first: null }
+}
+
+/** The longest time in the queue of any layer, or null when none is known. */
+const longest = (layers: readonly LayerQueue[]): number | null => {
+  const times = layers
+    .map((layer) => layer.queue_seconds)
+    .filter((time): time is number => typeof time === 'number')
+  return times.length === 0 ? null : Math.max(...times)
 }
 
 /** One layer that is not ready, and why. */
@@ -164,6 +242,154 @@ class StackShepherd {
       this.emit(false, `no open pull request is in stack #${this.options.stack}`)
     }
     return null
+  }
+
+  /**
+   * The stack for a queue action, or `null` once this has reported why
+   * there is none. A stack with no open pull request is gone from the
+   * list of open stacks. After a merge through the queue, that is the
+   * common case, so it is an answer (`gone`), not a failure.
+   */
+  async queueStack(): Promise<PullRequestStack | null> {
+    const answer = await this.options.gh.listOpenStacks()
+    const found = answer.rows.find((stack) => stack.number === this.options.stack)
+    if (found !== undefined) return found
+    if (answer.unavailable !== null) {
+      this.emit(false, `could not read stack #${this.options.stack}: ${answer.unavailable}`, {
+        read_error: answer.unavailable,
+      })
+      return null
+    }
+    this.emit(
+      true,
+      `no open pull request is in stack #${this.options.stack}; read each layer of the ` +
+        'merge report with shepherd-pr merged',
+      { result: 'gone' },
+    )
+    return null
+  }
+
+  /**
+   * One queue read of each layer that is not closed, bottom first. A
+   * layer that already merged stays in the read. `enqueued` holds the
+   * newest `enqueuedAt` each layer showed, across the reads of one call.
+   * A read that failed is `null`, with the layer and gh's words in
+   * `failure`.
+   */
+  async readLayers(
+    stack: PullRequestStack,
+    since: string,
+    enqueued: Map<number, string | null>,
+    failure: { layer: number; detail: string },
+  ): Promise<LayerQueue[] | null> {
+    const layers: LayerQueue[] = []
+    for (const layer of stack.layers.filter((entry) => entry.state !== 'CLOSED')) {
+      const { worker } = this.layer(layer.number, stack.base)
+      const facts = await worker.queueRead(since)
+      if (facts === null) {
+        failure.layer = layer.number
+        failure.detail = worker.readFailure()
+        return null
+      }
+      if (facts.entry !== null) enqueued.set(layer.number, facts.entry.enqueuedAt)
+      const fields = worker.queueFields(facts, enqueued.get(layer.number) ?? (since || null))
+      const { pr: _pr, ...kept } = fields
+      layers.push({ number: layer.number, ...kept, result: queueResult(facts), drop: facts.drop })
+    }
+    return layers
+  }
+
+  /** The report of a queue read of the whole stack. */
+  stackQueueFields(layers: readonly LayerQueue[]): Record<string, unknown> {
+    const { result, first } = stackQueueResult(layers)
+    return {
+      result,
+      layer: first?.number ?? null,
+      drop: first?.drop ?? null,
+      queue_seconds: longest(layers),
+      layers,
+    }
+  }
+
+  /** The detail of a queue read of the whole stack. */
+  stackQueueDetail(layers: readonly LayerQueue[]): string {
+    const { result, first } = stackQueueResult(layers)
+    if (first !== null) {
+      return `#${first.number} is the layer to fix: ${dropWords(first.drop as QueueDrop)}`
+    }
+    if (result === 'merged') return 'every layer merged'
+    if (result === 'queued') return 'the stack is in the queue'
+    return 'no layer is in the queue, and none dropped'
+  }
+
+  async queue(since: string): Promise<void> {
+    const stack = await this.queueStack()
+    if (stack === null) return
+    const failure = { layer: 0, detail: '' }
+    const layers = await this.readLayers(stack, since, new Map(), failure)
+    if (layers === null) {
+      this.emit(false, `could not read the queue of #${failure.layer}: ${failure.detail}`, {
+        layer: failure.layer,
+      })
+      return
+    }
+    this.emit(true, this.stackQueueDetail(layers), {
+      base: stack.base,
+      ...this.stackQueueFields(layers),
+    })
+  }
+
+  /**
+   * Read the queue of every layer until the stack merges, a layer drops,
+   * no layer is in the queue, or the bound passes, with the poll of
+   * `shepherd-pr queue-wait`. The layers come from the first read, so a
+   * stack that merges in full during the wait still reads `merged`.
+   */
+  async queueWait(since: string): Promise<void> {
+    const stack = await this.queueStack()
+    if (stack === null) return
+    const enqueued = new Map<number, string | null>()
+    const failure = { layer: 0, detail: '' }
+    const first = await this.readLayers(stack, since, enqueued, failure)
+    if (first === null) {
+      this.emit(false, `could not read the queue of #${failure.layer}: ${failure.detail}`, {
+        layer: failure.layer,
+      })
+      return
+    }
+    const polled = await pollQueue(
+      this.options.context,
+      first,
+      () => this.readLayers(stack, since, enqueued, failure),
+      (layers) => stackQueueResult(layers).result !== 'queued',
+    )
+    const reading = { bound: polled.bound, ...polled.reading }
+    if (polled.stale) {
+      this.emit(
+        false,
+        `queue-wait waited ${reading.waited}s but could not re-read the queue of ` +
+          `#${failure.layer} (${reading.read_failures} of ` +
+          `${reading.reads_ok + reading.read_failures} reads failed, the last among them): ` +
+          failure.detail,
+        { layer: failure.layer, ...reading, read_error: failure.detail },
+      )
+      return
+    }
+    const fields = this.stackQueueFields(polled.last)
+    const open = fields.result === 'queued'
+    this.emit(
+      true,
+      open
+        ? `the stack is in the queue; still open after ${reading.waited}s`
+        : this.stackQueueDetail(polled.last),
+      {
+        base: stack.base,
+        ...fields,
+        ...(open ? { result: 'pending' } : {}),
+        ...reading,
+        read_error: '',
+      },
+    )
   }
 
   /** A `shepherd-pr` worker for one layer, whose report comes back to this
@@ -441,12 +667,17 @@ class StackShepherd {
 }
 
 /** The action each name runs, which is also the set the usage advertises. */
-const HANDLERS: Record<string, (worker: StackShepherd) => Promise<void>> = {
+const HANDLERS: Record<string, (worker: StackShepherd, argument: string) => Promise<void>> = {
   state: (worker) => worker.state(),
   update: (worker) => worker.update(),
   wait: (worker) => worker.wait(),
   merge: (worker) => worker.merge(),
+  queue: (worker, since) => worker.queue(since),
+  'queue-wait': (worker, since) => worker.queueWait(since),
 }
+
+/** The actions that take a fourth argument, `<since>`. */
+const WITH_SINCE = ['queue', 'queue-wait']
 
 /** The command, with everything it did not expect still to be caught. */
 const shepherdStack = async (
@@ -462,8 +693,9 @@ const shepherdStack = async (
     output.out.write(`${HELP}\n`)
     return 0
   }
-  const [target = '', stack = '', action = ''] = argv
-  if (argv.length !== 3) return refuse(HELP, 2)
+  const [target = '', stack = '', action = '', since = ''] = argv
+  const most = WITH_SINCE.includes(action) ? 4 : 3
+  if (argv.length < 3 || argv.length > most) return refuse(HELP, 2)
   const refusal = directoryRefusal(target)
   if (refusal !== null) return refuse(refusal, 2)
   if (!NUMBER_RE.test(stack)) return refuse(`not a stack number: ${stack}`, 2)
@@ -478,6 +710,8 @@ const shepherdStack = async (
     output.err.write(`unknown action: ${action}\n`)
     return refuse(HELP, 2)
   }
+  const usage = argumentRefusal(action, since)
+  if (usage !== null) return refuse(usage, 2)
   const repo = await resolveRepository(target, context)
   if (typeof repo !== 'string') return refuse(repo.refusal, 1)
   await handler(
@@ -492,6 +726,7 @@ const shepherdStack = async (
       // repository from it.
       gh: context.createGh({ cwd: target, repository: repo }),
     }),
+    since,
   )
   return 0
 }

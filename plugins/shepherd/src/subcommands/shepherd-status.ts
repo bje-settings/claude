@@ -36,6 +36,7 @@ import {
   targetBase,
   targetHeads,
   threadReads,
+  withOverlaps,
   withQueue,
 } from '../shepherd.ts'
 
@@ -90,7 +91,15 @@ Prints one JSON document and changes nothing:
                    by an Actions run", "workflow <path> has no merge_group
                    trigger", or "could not be proven: <why>". \`unavailable\`
                    says why the queue or the required checks could not be
-                   read. A base with no queue reads no workflow
+                   read. A base with no queue reads no workflow. A base
+                   in queue mode also has \`overlaps\`: one entry per
+                   target on that base, as {id, shares}. \`id\` is the pull
+                   request number, or stack:<s>. \`shares\` names each
+                   target on that base that changes a file it changes. A
+                   target whose files is null shares with each of them.
+                   Shepherd enqueues two targets that share a file one at
+                   a time. Required workflows of a ruleset are not part of
+                   this check (#514)
 
 Each target carries \`approval\` (met, missing, not_required, or null) and
 \`threads\` (resolved, unresolved, not_required, or null). The pull_request
@@ -386,7 +395,7 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
   }
   // `indent=2, ensure_ascii=False`: two spaces, and every character as
   // itself. This is what `JSON.stringify(value, null, 2)` writes.
-  output.out.write(`${JSON.stringify(withQueue(document, queues, files), null, 2)}\n`)
+  output.out.write(`${JSON.stringify(withOverlaps(withQueue(document, queues, files)), null, 2)}\n`)
   return 0
 }
 

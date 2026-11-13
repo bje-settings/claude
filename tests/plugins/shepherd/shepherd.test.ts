@@ -53,9 +53,11 @@ import {
   tailLines,
   targetBase,
   targetHeads,
+  targetId,
   threadReads,
   threadsOf,
   unreportedRequired,
+  withOverlaps,
   withQueue,
 } from '#shepherd/shepherd.ts'
 
@@ -1819,5 +1821,79 @@ describe('withQueue', () => {
     })
     expect(queued.queue).toEqual({ main: NO_QUEUE })
     expect(queued.not_ready).toBe(document.not_ready)
+  })
+})
+
+describe('withOverlaps', () => {
+  const QUEUED = {
+    present: true,
+    rule: RULE,
+    mode: 'queue' as const,
+    blocking: [],
+    unavailable: null,
+  }
+  const SERIAL = { ...QUEUED, mode: 'serial' as const }
+  const pull = (number: number, base: string, files: readonly string[] | null) => ({
+    ...summary(readable({ number, baseRefName: base, autoMergeRequest: {} })),
+    files,
+  })
+  const document = (targets: ReturnType<typeof pull>[] | object[], queue: object) =>
+    ({
+      repo: 'acme/widgets',
+      default_branch: 'main',
+      ci_seconds: 300,
+      targets,
+      not_ready: [],
+      queue,
+    }) as Parameters<typeof withOverlaps>[0]
+
+  it('names the targets on a queue-mode base that share a file, and only those', () => {
+    const stack = { stack: 472, base: 'main', layers: [470, 471], files: ['b.ts'] }
+    const out = withOverlaps(
+      document(
+        [
+          pull(1, 'main', ['a.ts', 'b.ts']),
+          pull(2, 'main', ['c.ts']),
+          stack,
+          pull(3, 'release', null),
+        ],
+        { main: QUEUED, release: SERIAL },
+      ),
+    )
+
+    expect(out.queue.main).toEqual({
+      ...QUEUED,
+      overlaps: [
+        { id: '1', shares: ['stack:472'] },
+        { id: '2', shares: [] },
+        { id: 'stack:472', shares: ['1'] },
+      ],
+    })
+    // A target of a serial base is not passed in, though its files are null.
+    expect(out.queue.release).toEqual(SERIAL)
+    expect(out.queue.release).not.toHaveProperty('overlaps')
+  })
+
+  it('reads null files on a queue-mode base as sharing with every target there', () => {
+    const out = withOverlaps(
+      document([pull(1, 'main', null), pull(2, 'main', ['c.ts'])], { main: QUEUED }),
+    )
+
+    expect(out.queue.main).toMatchObject({
+      overlaps: [
+        { id: '1', shares: ['2'] },
+        { id: '2', shares: ['1'] },
+      ],
+    })
+  })
+
+  it('leaves a document with no queue-mode base as it was', () => {
+    const before = document([pull(1, 'main', null)], { main: SERIAL })
+    expect(withOverlaps(before)).toEqual(before)
+  })
+
+  it('names a stack as stack:<s> and a pull request by its number', () => {
+    expect(targetId({ stack: 9, base: 'main', layers: [1] })).toBe('stack:9')
+    expect(targetId(summary(readable({ number: 12 })))).toBe('12')
   })
 })

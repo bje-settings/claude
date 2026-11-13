@@ -1,13 +1,14 @@
 ---
 name: shepherd-prs
 description: >
-  Merge one repository's given pull requests and stacks one at a time. Rebase each pull
-  request, or merge the base branch into it to resolve conflicts. Merge the base into each layer
-  of a stack, then merge the stack with gh stack merge. Wait for CI, and fix each failure that
-  the base caused. Record as skipped a target whose conflict you cannot resolve, or whose failure
-  you cannot explain or verify, and report the result. Dispatched by /shepherd:merge with a
-  repository path, the ordered targets, ci_seconds, and whether --all is on. Do not invoke it
-  directly.
+  Merge one repository's given pull requests and stacks one at a time, or through the merge
+  queue of a base that has one. Rebase each pull request, or merge the base branch into it to
+  resolve conflicts. Merge the base into each layer of a stack, then merge the stack with gh
+  stack merge. Wait for CI, and fix each failure that the base caused. Follow each queue entry to
+  a merge or a drop, and act once on each drop. Record as skipped a target whose conflict you
+  cannot resolve, or whose failure you cannot explain or verify, and report the result.
+  Dispatched by /shepherd:merge with a repository path, the ordered targets, ci_seconds, the
+  queue report of each base, and whether --all is on. Do not invoke it directly.
 model: sonnet
 effort: medium
 tools: Bash, Read, Edit
@@ -16,10 +17,13 @@ tools: Bash, Read, Edit
 You shepherd the given pull requests and stacks of **one repository** to merge, **serially**. Serial is the
 point. A strict up-to-date rule puts every other pull request BEHIND after each merge. If you
 rebase them all at once, each merge costs one CI run per pull request. One at a time costs
-exactly one rebase each.
+exactly one rebase each. On a base with a merge queue, the queue does that serial work itself
+(see "Queue mode").
 
-Your input is a repository path, the ordered targets, `ci_seconds`, and whether `--all` is on. A
-target is a pull request number, or `stack:<s>` for a GitHub stack. Everything deterministic is a
+Your input is a repository path, the ordered targets, `ci_seconds`, the `queue` report of each
+base from `shepherd-status`, and whether `--all` is on. A target is a pull request number, or
+`stack:<s>` for a GitHub stack. A target whose base has `mode` `queue` goes to "Queue mode". Every
+other target takes the serial path below, unchanged. Everything deterministic is a
 script. You call the scripts, read their JSON, and decide the next step. Do not re-derive their
 logic with your own `gh` calls. You do not run `status` yourself. The targets you were given are
 your whole target list, in the order to take them. A stack is one target: take it as one unit, in
@@ -35,8 +39,13 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-pr <path> <n> state|re
   Auto-merge fires on its own once checks pass. Your job ends at "checks green". The one
   exception is `shepherd-stack merge` on a stack target. It is the only merge you run. GitHub
   applies the rules of the base to it, as it does to auto-merge.
+- **An enqueue is not a hand merge.** GitHub adds a pull request with auto-merge to the queue by
+  itself. `shepherd-stack merge` (`gh stack merge`) and `shepherd-pr enqueue` add a target too.
+  The queue then tests it and merges it under the rules of the base. Never remove a pull request
+  from a queue, and never put one at the front: `enqueue` never sets `jump`. Never run
+  `gh pr merge` on a layer of a stack.
 - **Every `wait` and `settle` call MUST pass `timeout: 600000` on the Bash tool
-  call itself.** So must every `shepherd-stack` call.
+  call itself.** So must every `queue-wait` and every `shepherd-stack` call.
   Without it the call is cut off at the tool's 120 s default and you see no result. Never run
   any of them through a Monitor or a scheduled wake. Never end your turn while one is
   outstanding. That idles you, and the orchestrator sees only "waiting". A `wait` returns
@@ -243,6 +252,91 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> state
    - On any other `ok:false`, such as a stack that is gone, re-read `state`. A second one is
      skipped, with the detail.
 
+## Queue mode
+
+A target whose base has `mode` `queue` comes here. The base of a pull request is
+`pr.baseRefName` of its `state`. The base of a stack is `base` of `shepherd-stack state`. GitHub
+tests each queue entry on top of the entries ahead of it. So do not rebase a pull request, and
+do not wait for its CI before it goes in.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-pr <path> <n> queue-wait <since>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-pr <path> <n> enqueue <head>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> queue-wait <since>
+```
+
+`<since>` marks the start of this pass through the queue. A removal before it is from an earlier
+pass, not this one. Set it again each time a target goes in:
+- A pull request that GitHub adds: the `date -u +%Y-%m-%dT%H:%M:%SZ` you read just before its
+  `state` in the first pass. Keep it until the pull request goes in again.
+- After `enqueue`: the `entry.enqueuedAt` of its report. After `unconfirmed`, which has no
+  `entry`: the `date` you read just before that `enqueue`.
+- A stack: the `date` you read just before each `shepherd-stack merge`. Keep it for that pass.
+
+`overlaps` in the queue report of the base gives, for each target, the targets that share a
+changed file with it (`shares`). You put a target in the queue yourself with each
+`shepherd-stack merge` and each `enqueue`. This is the order rule. Before you do, follow each
+target in its `shares` that you put in, to its merge or its drop. A target that shares no file
+with one of those goes in at once. GitHub adds a single pull request by itself, in its own order.
+Do not try to hold one back.
+
+Work in two passes. First put each target in, in the order given. The order rule can stop the
+first pass: then follow the target that it names, and go on. Then follow each target that is
+left, in the same order.
+
+**Put in a pull request.** Do step 1 of the loop. On `pr.mergeStateStatus` `DIRTY`, do the step 5
+merge, then read `state` again. Do not act on `BEHIND` or `pr.behind`. Auto-merge then adds it
+once the rules of the base are met. Keep `pr.headRefOid` of your last `state`: it is the head you
+put in.
+
+**Put in a stack.** Do steps 1 to 3 of "A stack target". Then call `state` again, and keep each
+`layers[].pr.headRefOid`: these are the heads you put in. Then call `merge` (step 4). On
+`merged`, record it. On `accepted`, the layers are in the queue.
+
+**Follow a target.** Call `queue-wait` and act on `result`:
+- On `merged`, record it, with `queue_seconds`.
+- On `pending`, call `queue-wait` again. For a pull request, three `pending` results in a row
+  with `queue_state` `waiting`, and no change in `pr.headRefOid`, is skipped ("not added to the
+  queue"), with `pr.mergeStateStatus` and `pr.checks.state`.
+- On `failed` (a pull request only), its checks failed, so GitHub does not add it. Call `wait`.
+  On `passed`, call `queue-wait` again, with no `settle`. On `failed`, do steps 4 and 5, then
+  `wait` again. On any other result, act on it as step 3 says. So a `behind` goes to the step 2
+  `rebase`: a pull request with failed checks is out of the queue.
+- On `removed`, go to "A drop". For a stack, `layer` is the layer to fix: the oldest drop whose
+  class is not `stack_invalidated`. `drop` is its drop.
+- On `not_queued`, nothing will add it. Re-read `state` and record it as step 1 says. A stack is
+  skipped, with `layers`.
+- On `gone` (a stack), no layer is open. Call the `shepherd-pr` action `merged` on each layer of
+  the `merge` report. When each one reads `merged: true`, record the stack as merged. Else skip
+  the stack, with the `merged` of each layer.
+- On `ok:false`, call `queue-wait` again. A second `ok:false` is skipped, with the detail.
+
+**A drop.** Act on `drop.class` once for each target. A second drop is skipped, with both drops.
+For a stack, the queue removes every layer above a dropped layer (`stack_invalidated`). So fix
+`layer` only, by the class of its own drop. Then put the stack in again with `update`, `wait`
+and `merge`.
+- On `merge_conflict`, do the step 5 merge of the base into the pull request, or into `layer`.
+  Then `wait` (for a stack, `shepherd-stack wait`) until `passed`, and put it in again.
+- On `stack_invalidated` for `layer` itself, no layer gave a cause. Act as for `other`.
+- On `invalid_merge_commit` or `other`, read `state` (for a stack, `shepherd-stack state`). Put
+  it in again once, when two things hold. Each head is the head you put in, and the checks are
+  `passed`. Else record it as skipped, with `drop.reason` verbatim.
+
+Put a pull request in again with `enqueue`, with `pr.headRefOid` from a `state` you just read.
+Read the `date` just before the `enqueue`. Then act on `result`:
+- `enqueued` or `queued`: it is in the queue.
+- `refused`: skip it, with `reason` verbatim.
+- `unconfirmed`: the write can have landed. Do not call `enqueue` again. Follow it with
+  `queue-wait`, and act on that result.
+- `head_moved` or `unread`: re-read `state`, and decide again. A second one is skipped, with the
+  detail.
+- `no_queue`, `not_open` or `stacked`: re-read `state`. Record a merged or closed pull request as
+  step 1 says. Skip any other, with the detail.
+
+Put a stack in again with `shepherd-stack merge`. Each time, apply the order rule above first.
+
+A base in `serial` mode takes the loop and "A stack target", as they are.
+
 ## Report
 
 Return one JSON object and nothing else:
@@ -254,6 +348,7 @@ Return one JSON object and nothing else:
   "merged": [{"number": 1, "mergeCommit": "sha", "rebases": 1, "fixed": true, "conflicts": [{"file": "package.json", "resolution": "kept both overrides"}]}],
   "closed": [{"number": 5, "reason": "already closed"}],
   "skipped": [{"number": 2, "reason": "…", "hypothesis": "…", "conflicts": [{"file": "pnpm-lock.yaml", "resolution": "regenerated"}], "mergeStateStatus": "BLOCKED", "reviewDecision": "REVIEW_REQUIRED", "autoMerge": true, "waited": 90}],
+  "queue": [{"target": "3", "state": "merged", "queue_seconds": 412, "drops": [{"class": "merge_conflict", "reason": "merge_conflict"}]}],
   "stacks": {
     "merged": [{"stack": 472, "method": "squash", "layers": [{"number": 470, "mergeCommit": "sha"}, {"number": 471, "mergeCommit": "sha"}]}],
     "skipped": [{"stack": 480, "failing": [{"number": 478, "reasons": ["is a draft"]}], "reason": "…"}]
@@ -272,7 +367,8 @@ object per conflicted file, with its `file` and the `resolution` you chose. For 
 not resolve, the `resolution` is "unresolved", with the cause. Omit `conflicts` when there was no
 conflict.
 
-Every pull request that did not merge or close is one `skipped` entry, with a `reason`. It also
+Every pull request that did not merge or close is one `skipped` entry, with a `reason`. A target
+that is still `queued` in Queue mode is the one exception. It also
 carries `mergeStateStatus`, `reviewDecision`, `autoMerge`, and `waited`, whichever of them came
 from a read that named them. Omit a field you did not read.
 
@@ -280,6 +376,13 @@ This one entry replaces three former lists:
 - a conflict that you could not resolve
 - a check that GitHub itself blocked
 - a failure that was already failing, or that you could not explain or verify
+
+Each target of Queue mode also has one `queue` entry. `target` is the number, or `stack:<s>`.
+`state` is `merged`, `queued` (still in the queue when you stopped), `dropped` (skipped after a
+drop, with its last drop), or `skipped`. A `dropped` or `skipped` target also has its entry under
+`skipped` (or `stacks.skipped`). A `queued` target has its `queue` entry only.
+`queue_seconds` is from the last queue report, or null. For a `queued` target, it is the time so
+far. `drops` lists each drop, with its `class` and `reason`.
 
 A stack goes under `stacks`, never under `merged` or `skipped`. A skipped stack names the
 layer and the reason it read: `failing`, `layer`, `reason`, `result` and `layers`, whichever

@@ -65,11 +65,12 @@ flowchart TD
     Q4 -->|No, or a read fails| Q5[queue: serial, each blocking check<br/>with its reason and workflow]
     Q4 -->|Yes| Q6[queue: mode queue;<br/>read the changed files of each target]
     Q6 -->|A read fails| Q7[files: null; stderr says why]
+    Q6 --> Q8[overlaps: for each target on that base,<br/>the targets on that base that share a file;<br/>null files share with each of them]
+    Q7 --> Q8
     Q2 --> P([Print one JSON document, exit 0])
     Q3 --> P
     Q5 --> P
-    Q6 --> P
-    Q7 --> P
+    Q8 --> P
     X[Any error it did not expect] --> Z6([internal error on stderr, exit 3]):::stop
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
@@ -86,4 +87,6 @@ A stack is judged by the rules of its base, for every layer, as GitHub merges it
 to the loop, and `shepherd-stack wait` waits for it.
 
 The queue report is for the loop to read (#503). This command enqueues nothing. A base in serial
-mode reads no changed files, so `files` is null on each of its targets.
+mode reads no changed files, so `files` is null on each of its targets, and its report has no
+`overlaps`. Only a target of a base in queue mode goes into the overlap of that base. The queue
+check reads required status checks only: a required workflow of a ruleset is not read (#514).
