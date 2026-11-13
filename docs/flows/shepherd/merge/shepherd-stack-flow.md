@@ -1,6 +1,6 @@
 ---
 type: Reference
-description: How `shepherd.ts shepherd-stack` checks its arguments, then runs one of four steps on one GitHub stack, layer by layer, bottom first. It reports every result.
+description: How `shepherd.ts shepherd-stack` checks its arguments, then runs one of six steps on one GitHub stack, layer by layer, bottom first, the merge queue reads included. It reports every result.
 stale_after: 2027-04-20
 generated:
   by: claude-opus
@@ -18,12 +18,13 @@ The `shepherd-prs` agent runs it for a stack target that `shepherd-status` gave.
 flowchart TD
     A[shepherd-stack run] --> B{Help in any position?}
     B -->|Yes| H([Print usage, exit 0])
-    B -->|No| C{Three arguments, a directory, a stack number,<br/>a git checkout, a known action?}
+    B -->|No| C{Three arguments, or four for a queue read;<br/>a directory, a stack number, a git checkout,<br/>a known action, a since that is a time?}
     C -->|No| Z1([Refused: usage error, exit 2]):::stop
     C -->|Yes| D{gh names the repository?}
     D -->|No| Z2([gh is required, or could not resolve, exit 1]):::stop
     D -->|Yes| E{The stack holds an open pull request?}
     E -->|No, or the read came back short| Z3([ok:false: no open pull request in the stack,<br/>or could not read the stack]):::stop
+    E -->|No, for queue or queue-wait| QG([ok:true: gone; read each layer<br/>of the merge report with merged])
     E -->|Yes: open layers, bottom first;<br/>a merged entry is no layer| F{Action}
 
     F -->|state| S1[shepherd-pr state on each layer,<br/>with the rules of the stack base]
@@ -57,6 +58,20 @@ flowchart TD
     M4 -->|Yes| MM([merged, each merge commit])
     M4 -->|No, or a read failed| MA([accepted, each layer's state])
 
+    F -->|queue or queue-wait| Q1[shepherd-pr queue on each layer that is not closed,<br/>bottom first, a merged one included]
+    Q1 -->|A layer cannot be read| QX([ok:false, with the layer]):::stop
+    Q1 --> Q2{The layers together}
+    Q2 -->|Every layer merged| QM([merged, the longest time in the queue])
+    Q2 -->|A layer dropped| QD([removed: the layer whose drop is oldest,<br/>the bottom one of a tie, with its drop class])
+    Q2 -->|No layer in the queue, none dropped| QN([not_queued])
+    Q2 -->|A layer still in the queue, for queue| QQ([queued])
+    Q2 -->|A layer still in the queue, for queue-wait| Q3{Bound reached?}
+    Q3 -->|No| Q4[Sleep one poll, then read the same layers again] --> Q5{That read succeeded?}
+    Q5 -->|Yes| Q2
+    Q5 -->|No: counted| Q3
+    Q3 -->|Yes, last read succeeded| QP([pending])
+    Q3 -->|Yes, last read failed| QF([ok:false, with the layer]):::stop
+
     X[Any error it did not expect] --> Z6([internal error on stderr, exit 3]):::stop
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
@@ -67,3 +82,8 @@ such a stack (the probe of ruling 3 on #469). `gh stack merge` is all or nothing
 applies the rules of the base to it. A read that failed never decides a verdict: it gives
 `ok:false` or `unread`, and the agent reads again. Required checks that could not be read are the
 one exception: the rollup alone decides, and GitHub still applies the rules.
+
+On a base with a merge queue, `merge` gives `accepted` while the layers wait in the queue. `queue`
+and `queue-wait` then follow every layer (#503). They never remove a layer from the queue. A
+stack that merged in full is gone from the open stacks, so `queue-wait` keeps the layers of its
+first read, and a later read still sees the merge.

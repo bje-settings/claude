@@ -1,6 +1,6 @@
 ---
 type: Reference
-description: What the /shepherd:merge skill does for auto-merge pull requests and stacks, and every way it declines to act, given an optional label.
+description: What the /shepherd:merge skill does for auto-merge pull requests and stacks, through the serial loop or the merge queue of the base, and every way it declines to act, given an optional label.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
@@ -31,6 +31,37 @@ flowchart TD
     SR -->|No: one target, after the PRs| B2
     B2 -->|--dry-run| Z2([Print each repo's plan and its not-ready list, change nothing]):::stop
     B2 -->|Targets remain| C[One worker per repo, repos in parallel]
+    C --> QM{The base of the target in queue mode?<br/>A queue rule, and each required check<br/>from a merge_group workflow}
+    QM -->|No, or the queue could not be read| S
+    QM -->|Yes| QI
+
+    subgraph queuemode [queue mode, inside one repo]
+        direction TB
+        QI{Target kind}
+        QI -->|A PR| QP1{Conflicts?}
+        QP1 -->|Yes| QP2[Merge the base in a worktree, resolve, plain push]
+        QP1 -->|No| QP3[GitHub adds it through auto-merge;<br/>no rebase, no CI wait first]
+        QP2 --> QP3
+        QI -->|A stack| QS1{Shares a file with a target in the queue?}
+        QS1 -->|Yes| QS2[Follow that target to its merge or drop first] --> QS1
+        QS1 -->|No| QS3[Stack steps, then gh stack merge]
+        QP3 --> QF[Follow it in the queue]
+        QS3 --> QF
+        QF -->|Merged| QFM([Merged, with its time in the queue])
+        QF -->|Not added, checks failed| QFF[Fix it through the serial loop] --> QF
+        QF -->|Not added for three reads| QFS([Skipped: not added to the queue]):::stop
+        QF -->|Dropped, a first time| QD{Drop class}
+        QD -->|merge_conflict| QD1[Merge the base, resolve, wait for CI]
+        QD -->|stack_invalidated| QD2[Fix the layer that dropped first]
+        QD -->|other: same head, CI green| QD3[No fix]
+        QD -->|other: head moved, or CI not green| QDS([Skipped, with GitHub's words]):::stop
+        QD1 --> QR{Shares a file with a target in the queue?}
+        QD2 --> QR
+        QD3 --> QR
+        QR -->|Yes| QR2[Follow that target to its merge or drop first] --> QR
+        QR -->|No| QE[Put it in again: enqueue for a PR,<br/>gh stack merge for a stack; never jump] --> QF
+        QF -->|Dropped a second time| QDS
+    end
 
     subgraph worker [inside one repo, one PR at a time]
         direction TB
@@ -79,7 +110,10 @@ flowchart TD
     V -->|Yes: one merged read| V2{Merged after all?}
     V2 -->|Yes| V3[Move it to merged] --> Z3
     V2 -->|No| Z3
-    V -->|No: a cause was named| Z3([Table per repo; suggest resolve-alerts<br/>when something merged])
+    V -->|No: a cause was named| Z3([Table per repo, with the queue state and the time<br/>in the queue of each queue target, and each check<br/>that keeps a base with a queue serial;<br/>suggest resolve-alerts when something merged])
+    QFM --> D
+    QFS --> D
+    QDS --> D
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
