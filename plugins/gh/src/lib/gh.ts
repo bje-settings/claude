@@ -1064,7 +1064,8 @@ export interface GhClient {
    *
    * Never throws, as {@link GhClient.mergeStack} does not. A refusal is a
    * null `entry`, with GitHub's own words in `unavailable`. A reply with no
-   * entry and no error is a null `entry` too, with a reason.
+   * entry and no error is a null `entry` too, with a reason. A reply with an
+   * entry and errors gives both: the entry is the answer.
    */
   enqueuePullRequest(query: {
     readonly pullRequest: number

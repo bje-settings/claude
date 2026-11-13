@@ -770,6 +770,7 @@ at once when the queue rule goes away.
 
 It never throws, as `mergeStack` does not. A refusal is a null `entry`, with the `errors`
 messages of the reply in `unavailable`. A reply with no entry and no error is a null `entry` too.
+A reply with an entry and errors gives both. The entry is the answer.
 A node id that could not be read sends no mutation. `shepherd-pr enqueue` is the one caller.
 
 ## The TypeSafe transport and the Jev client
