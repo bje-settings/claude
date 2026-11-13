@@ -117,9 +117,9 @@ const runsCreate = (words: readonly string[]): boolean => {
 
 /** The value of `--<name> v` or `--<name>=v`, or of `short v`, `short=v` or
  *  `shortv`. `shortv` and `short=v` count only when `v` is a repository, so
- *  that a value such as `-Refactor` is not one. The last one wins. The next word is the value, also when it is a
- *  flag. A flag with no word after it has an empty value. `undefined` when
- *  the flag is absent. */
+ *  that a value such as `-Refactor` is not one. The last one wins. The next
+ *  word is the value, also when it is a flag. A flag with no word after it
+ *  has an empty value. `undefined` when the flag is absent. */
 const flagValue = (
   words: readonly string[],
   name: string,
