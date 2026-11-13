@@ -11,9 +11,10 @@
 //
 // **Time is an argument.** `rebase`, `wait`, `settle` and `queue-wait`
 // each poll until their own bound. The clock and the sleep come in
-// through `ShepherdContext`. This lets the tests drive every bound to its end, with no real wait. The
-// wait and settle bounds are the Python's numbers (#106 measures the settle
-// bound). The rebase bound and the wait interval are new at #460.
+// through `ShepherdContext`. This lets the tests drive every bound to its
+// end, with no real wait. The wait and settle bounds are the Python's
+// numbers (#106 measures the settle bound). The rebase bound and the
+// wait interval are new at #460.
 //
 // `shepherd-stack.ts` runs these same steps on each layer of a stack
 // (#469). It builds a {@link Shepherd} for each layer, with a `report` in
