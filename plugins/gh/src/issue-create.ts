@@ -5,7 +5,7 @@
 // part of its module graph (ADR 007, ruling 6).
 
 /** The time one read of the issue types may take, in milliseconds. A slow
- *  read delays the first create in a repository by this much, and no more. */
+ *  read delays the first create in a repository by this much. */
 export const TYPES_TIMEOUT_MS = 5000
 
 /** The text of a denied call. It names the skill that sets the type. */
@@ -33,11 +33,15 @@ export interface Untyped {
 const TOKEN =
   /'([^']*)'?|"((?:\\[\s\S]|[^"\\])*)"?|(\\\n)|\\([\s\S]?)|([;&|()\n])|([^\S\n]+)|([^\s;&|()'"\\]+)/g
 
-/** The start of a here-document: `<<`, `<<-`, and the delimiter word. */
+/** The start of a here-document: `<<`, `<<-`, and the delimiter word, bare
+ *  or in quotes. A `<<<` here-string does not start one. */
 const HEREDOC = /(?<!<)<<-?\s*(['"]?)([A-Za-z_]\w*)\1/
 
 /** A repository, `owner/name`, with an optional host before it. */
 const REPOSITORY = /^(?:([^/]+)\/)?([^/]+)\/([^/]+)$/
+
+/** The help flags. A `gh issue create` with one creates no issue. */
+const HELP: ReadonlySet<string> = new Set(['--help', '-h'])
 
 /** The names of `gh issue create`. */
 const CREATE: ReadonlySet<string | undefined> = new Set(['create', 'new'])
@@ -112,7 +116,8 @@ const runsCreate = (words: readonly string[]): boolean => {
 }
 
 /** The value of `--<name> v` or `--<name>=v`, or of `short v`, `short=v` or
- *  `shortv`. The last one wins. The next word is the value, also when it is a
+ *  `shortv`. `shortv` and `short=v` count only when `v` is a repository or
+ *  empty, so that a value such as `-Refactor` is not one. The last one wins. The next word is the value, also when it is a
  *  flag. A flag with no word after it has an empty value. `undefined` when
  *  the flag is absent. */
 const flagValue = (
@@ -124,19 +129,23 @@ const flagValue = (
   words.forEach((word, index) => {
     if (word === `--${name}` || word === short) found = words[index + 1] ?? ''
     else if (word.startsWith(`--${name}=`)) found = word.slice(name.length + 3)
-    else if (short !== undefined && word.startsWith(short))
-      found = word.slice(short.length).replace(/^=/, '')
+    else if (short !== undefined && word.startsWith(short)) {
+      const attached = word.slice(short.length).replace(/^=/, '')
+      if (attached === '' || REPOSITORY.test(attached)) found = attached
+    }
   })
   return found
 }
 
 /**
  * Each `gh issue create` of a Bash command that has no `--type` value, or a
- * blank one, with its repository. The list is empty when no such part exists.
+ * blank one, with its repository. A create with `--help` or `-h` is not one.
+ * The list is empty when no such part exists.
  */
 export const untypedCreates = (command: string): Untyped[] =>
   commandsOf(command)
     .filter(runsCreate)
+    .filter((words) => !words.some((word) => HELP.has(word)))
     .filter((words) => (flagValue(words, 'type', undefined) ?? '').trim() === '')
     .map((words) => ({ repo: flagValue(words, 'repo', '-R') || undefined }))
 
@@ -186,3 +195,9 @@ export const typesOf = (ran: { readonly exitCode: number; readonly stdout: strin
 /** The cache key of a read: the repository, else the session's directory. */
 export const typesKey = (repo: string | undefined, cwd: string): string =>
   repo === undefined ? `dir:${cwd}` : `repo:${repo}`
+
+/** The log line of a types read that failed or timed out: the guard is off
+ *  for that repository, or for the session's directory, until the session
+ *  ends (ruling 14 on #347). */
+export const guardOffText = (repo: string | undefined, cwd: string): string =>
+  `gh: issue type guard off for ${repo ?? cwd}: types read failed`

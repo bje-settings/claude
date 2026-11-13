@@ -2,10 +2,12 @@
 // module that uses them runs under `claude plugin test`
 // (`register.test.tsx`). These functions are in `src/`, so vitest
 // measures them.
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   commandsOf,
   DENY_REASON,
+  guardOffText,
   TYPES_TIMEOUT_MS,
   typesArgv,
   typesKey,
@@ -14,8 +16,8 @@ import {
 } from '#gh/issue-create.ts'
 
 /** The command of `skills/issues/create.md`, step 7, with each
- *  placeholder filled. The body splits into a `gh issue create` with no
- *  `--type` when its lines stay in. */
+ *  placeholder filled. The here-document body holds a `gh issue create`
+ *  with no `--type`. The parser must leave the body out. */
 const SKILL_COMMAND = `gh issue create --title "feat(gh): add a thing" --body-file - --type "Feature" --label "gh" --milestone "v1" --blocked-by 3,4 --blocking 5 --parent 2 <<'EOF'
 Line one; gh issue create
 It's text.
@@ -49,6 +51,10 @@ describe('commandsOf', () => {
     ])
   })
 
+  it('joins the two halves of a word that a line join splits', () => {
+    expect(commandsOf('a\\\nb c')).toEqual([['ab', 'c']])
+  })
+
   it('takes the rest of the command when a quote has no end', () => {
     expect(commandsOf(`a 'b; c`)).toEqual([['a', 'b; c']])
   })
@@ -61,6 +67,10 @@ describe('commandsOf', () => {
       ['c', '<<X'],
       ['d'],
     ])
+  })
+
+  it('leaves out the body of a here-document with a double-quoted delimiter', () => {
+    expect(commandsOf('cat <<"E"\nit\'s\nE\nd')).toEqual([['cat', '<<E'], ['d']])
   })
 
   it('keeps the lines after a here-document with no end line', () => {
@@ -109,8 +119,22 @@ describe('untypedCreates', () => {
 
   it('reads -R with its value in the same word', () => {
     expect(untypedCreates('gh issue create -Ro/r')).toEqual([{ repo: 'o/r' }])
+    expect(untypedCreates('gh issue create -Rh/o/r')).toEqual([{ repo: 'h/o/r' }])
     expect(untypedCreates('gh issue create -R=o/r')).toEqual([{ repo: 'o/r' }])
     expect(untypedCreates('gh issue create -R=')).toEqual([{ repo: undefined }])
+  })
+
+  it('does not read a value that starts with -R as a repository', () => {
+    expect(untypedCreates('gh issue create --title "-Refactor auth"')).toEqual([
+      { repo: undefined },
+    ])
+    expect(untypedCreates('gh issue create -R o/r --label -Rfoo')).toEqual([{ repo: 'o/r' }])
+  })
+
+  it('skips a create that asks for help', () => {
+    expect(untypedCreates('gh issue create --help')).toEqual([])
+    expect(untypedCreates('gh issue create -h')).toEqual([])
+    expect(untypedCreates('gh issue create -h && gh issue create')).toEqual([{ repo: undefined }])
   })
 
   it('takes the last --type', () => {
@@ -201,6 +225,19 @@ describe('typesArgv', () => {
   })
 })
 
+describe('the query of format.md', () => {
+  it('is the query and the filter that typesArgv sends', () => {
+    const format = readFileSync(
+      new URL('../../../plugins/gh/skills/issues/format.md', import.meta.url),
+      'utf8',
+    )
+    const argv = typesArgv(undefined)
+    const query = argv.find((word) => word.startsWith('query='))
+    expect(format).toContain(`-f ${query?.replace('=', "='")}'`)
+    expect(format).toContain(`--jq '${argv.at(-1)}'`)
+  })
+})
+
 describe('typesOf', () => {
   it('reads a list of types, an empty list, and anything else', () => {
     expect(typesOf({ exitCode: 0, stdout: '[{"name":"Bug","description":"d"}]\n' })).toBe('types')
@@ -217,6 +254,11 @@ describe('constants', () => {
     expect(typesKey('o/r', '/w')).toBe('repo:o/r')
     expect(typesKey(undefined, '/w')).toBe('dir:/w')
     expect(typesKey('/w', '/w')).not.toBe(typesKey(undefined, '/w'))
+  })
+
+  it('names the repository, else the directory, in the guard-off line', () => {
+    expect(guardOffText('o/r', '/w')).toBe('gh: issue type guard off for o/r: types read failed')
+    expect(guardOffText(undefined, '/w')).toBe('gh: issue type guard off for /w: types read failed')
   })
 
   it('names the skill in the deny reason, and bounds the read at 5 s', () => {

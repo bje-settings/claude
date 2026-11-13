@@ -710,6 +710,40 @@ test('a read that fails is kept, and a second create in that repository does not
   expect(typesRuns(seen).length).toBe(1)
 })
 
+test('a read that fails writes one log line for its repository, and a good read none', async ($, on) => {
+  const { seen, clock } = stubTypes(on, (_, argv) => {
+    if (argv.includes('owner=down')) return ran('', 1, 'HTTP 502')
+    if (argv.includes('owner=slow')) throw new Error('timed out')
+    return argv.includes('owner=has') ? TYPES : NO_TYPES
+  })
+
+  for (const repo of ['down/r', 'down/r', 'slow/r', 'slow/r', 'has/r', 'none/r', 'none/r']) {
+    await $.tool.call({ tool: 'Bash', command: `gh issue create -R ${repo}` })
+  }
+  await clock.settle()
+
+  expect(seen.logs).toEqual([
+    'gh: issue type guard off for down/r: types read failed',
+    'gh: issue type guard off for slow/r: types read failed',
+  ])
+})
+
+test('a new session directory has its own read', async ($, on) => {
+  const { seen, clock } = stubTypes(
+    on,
+    (_, argv) => (seen.inits.at(-1)?.cwd === '/a' && argv.includes('owner={owner}') ? TYPES : NO_TYPES),
+    { cwd: (index) => (index === 0 ? '/a' : '/b') },
+  )
+
+  const first = await $.tool.call({ tool: 'Bash', command: 'gh issue create' })
+  const second = await $.tool.call({ tool: 'Bash', command: 'gh issue create' })
+  await clock.settle()
+
+  expect(first.deny).toBeDefined()
+  expect(second.deny).toBeUndefined()
+  expect(typesRuns(seen).length).toBe(2)
+})
+
 test('two creates at the same time in one repository share one read', async ($, on) => {
   const { seen, clock } = stubTypes(on, () => TYPES)
 
