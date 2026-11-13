@@ -452,7 +452,7 @@ export interface MergeQueueEntry {
   readonly enqueuedAt: string
   /** `QUEUED`, `AWAITING_CHECKS`, `MERGEABLE`, `UNMERGEABLE` or `LOCKED`. */
   readonly state: string
-  /** The place in the queue. 0 is the head of the queue. */
+  /** The place in the queue, as GitHub gives it. */
   readonly position: number
 }
 
@@ -1015,9 +1015,9 @@ export interface GhClient {
    *
    * A directory, a file of more than 1 MB (which REST gives with no
    * content), and a path that is not there are each a null `text`, with
-   * the reason beside it. Never an empty text: a caller would read that as
-   * a file with nothing in it. Never throws, for {@link PagedResult}'s
-   * reason.
+   * the reason beside it. A refusal is never an empty text: a caller would
+   * read that as a file with nothing in it. Never throws, for
+   * {@link PagedResult}'s reason.
    */
   fileText(query: { readonly path: string; readonly ref: string }): Promise<GhResults['fileText']>
   /**
@@ -2442,7 +2442,7 @@ const encodedPath = (path: string): string => path.split('/').map(encodeURICompo
  */
 const readFileText = (value: unknown, where: string): GhResults['fileText'] => {
   const reply = asRecord(value)
-  if (Array.isArray(value) || reply?.type !== 'file') {
+  if (reply?.type !== 'file') {
     return { text: null, unavailable: `${where} is not a file${errorBodyOf(value)}` }
   }
   const content = asText(reply.content)

@@ -1374,8 +1374,9 @@ export const queueReport = (
  * The merge queue of `base`, with the decision `shepherd-status` reports.
  * `heads` are the rows of the target heads on that base. A base with no
  * queue costs the one rules read, and no run or workflow read. A read that
- * failed is serial, and stderr says why. An enqueue reads the queue again
- * first (ruling 9 on #503).
+ * failed is serial. For the rules or the required checks, stderr says why.
+ * For a run or a workflow file, a `blocking` reason says why. An enqueue
+ * reads the queue again first (ruling 9 on #503).
  */
 export const readQueue = async (
   gh: GhClient,
