@@ -233,25 +233,29 @@ The hooks module refuses a `gh issue create` that has no `--type`, when the repo
 issue types. The reason names `gh:issues` and tells the model to create the issue through it.
 The skill sets the type and the priority. A direct `gh issue create` sets neither.
 
-A call is refused when any `gh issue create` or `gh issue new` in the command has no `--type`
-value. `--type Bug` and `--type=Bug` pass. `--type ""`, `--type=` and a blank value do not. The
-module splits the command on `;`, `&`, `|`, parentheses and newlines outside quotes, so `&&` and
-`||` split it too. It skips the body of a here-document. It is not a full shell parser. A wrapper
-such as `bash -c`, a shell keyword before `gh`, or an issue that `gh api` creates, is not
-checked. A quote in a comment can hide the lines after it.
+In such a repository, a call is refused when any `gh issue create` or `gh issue new` in the
+command has no `--type` value. `--type Bug` and `--type=Bug` pass. `--type ""`, `--type=` and a
+blank value do not. The module splits the command on `;`, `&`, `|`, parentheses and newlines
+outside quotes, so `&&` and `||` split it too. It skips the body of the first here-document on
+each line. It is not a full shell parser. A wrapper such as `bash -c`, a shell keyword before
+`gh`, or an issue that `gh api` creates, is not checked. A quote in a comment can hide the lines
+after it.
 
 A call passes in each of these cases:
 
 - The command has no `gh issue create`. The module reads nothing.
-- Each `gh issue create` has a `--type` value.
+- Each `gh issue create` has a `--type` value, or asks for help with `--help` or `-h`.
 - The repository defines no issue type.
-- The read of the issue types fails or takes more than 5 seconds. The guard fails open.
+- The read of the issue types fails or takes more than 5 seconds. The guard fails open, and
+  writes one line to the transcript for that repository: `gh: issue type guard off for <repo>:
+  types read failed`.
 
 The module reads the types with the query in
 [`skills/issues/format.md`](skills/issues/format.md), once for each repository in a session. The
-repository is the `-R` or `--repo` value, with its host, or the session's directory. The answer
-stays in memory for the session. It is never written to disk. A failed read is also kept, so no
-later create waits for a second read.
+repository is the `-R` or `--repo` value, with its host, or the session's directory. A `-R` with
+its value in the same word counts only when the value is a repository. The answer stays in memory
+for the session. It is never written to disk. A failed read is also kept, so no later create
+waits for a second read.
 
 ## Session start hook
 
