@@ -31,7 +31,7 @@
 // gone from the tree. The file and line references below point to what they held at
 // `cd0d515`. This file keeps them because each one says where a rule came
 // from.
-import { GhError } from '../lib/gh.ts'
+import { GhError, type MergeQueueEntry } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import type { Writer } from '../lib/streams.ts'
 import {
@@ -125,6 +125,164 @@ const SETTLE_POLL_DEFAULT = 5
 const REBASE_BOUND_DEFAULT = 60
 const REBASE_POLL_DEFAULT = 5
 
+// How long `queue-wait` reads the merge queue, and how often (#503). 540
+// seconds is the longest `wait` bound, so one call fits in a ten-minute
+// tool call. Each read is three `gh` calls: the pull request, its queue
+// entry and its queue removals.
+const QUEUE_BOUND_DEFAULT = 540
+const QUEUE_POLL_DEFAULT = 30
+
+/** A full commit sha, the only head `enqueue` takes. */
+const SHA_RE = /^[0-9a-f]{40}$/
+
+/** The drop reasons the issue names (#503). GitHub types the reason as a
+ *  free string, so each other string is `other` (ruling 7). */
+export const DROP_CLASSES = ['merge_conflict', 'stack_invalidated', 'invalid_merge_commit'] as const
+
+export type DropClass = (typeof DROP_CLASSES)[number] | 'other'
+
+/** The class of one drop reason. An exact match only: a reason this does
+ *  not know, or a null one, is `other`. */
+export const dropClass = (reason: string | null): DropClass =>
+  DROP_CLASSES.find((known) => known === reason) ?? 'other'
+
+/** One removal from the queue, with its class. */
+export interface QueueDrop {
+  readonly reason: string | null
+  readonly class: DropClass
+  readonly createdAt: string
+}
+
+/** The words of one drop, with an unknown reason quoted. */
+export const dropWords = (drop: QueueDrop): string =>
+  drop.class !== 'other'
+    ? drop.class
+    : drop.reason === null
+      ? 'other (GitHub gave no reason)'
+      : `other (${JSON.stringify(drop.reason)})`
+
+/** What one read of the queue of a pull request found. */
+export type QueueResult = 'merged' | 'queued' | 'removed' | 'waiting' | 'not_queued'
+
+/** The read results after which a pull request can still move in the
+ *  queue, so `queue-wait` reads again. */
+const QUEUE_OPEN_RESULTS: readonly QueueResult[] = ['queued', 'waiting']
+
+/** One read of the queue of one pull request (#503). */
+export interface QueueFacts {
+  readonly pr: PullSummary
+  /** The pull request as gh answered it, for its `updatedAt`. */
+  readonly raw: Record<string, unknown>
+  readonly entry: MergeQueueEntry | null
+  /** The newest removal at or after `since`, or null. */
+  readonly drop: QueueDrop | null
+}
+
+/**
+ * The result of one queue read. A merge wins, then an entry, then a drop.
+ * With no entry and no drop, an open pull request with auto-merge is
+ * `waiting`: GitHub adds it when the rules of its base are met. Any other
+ * pull request is `not_queued`: nothing will add it.
+ */
+export const queueResult = (facts: QueueFacts): QueueResult => {
+  if (facts.pr.state === 'MERGED') return 'merged'
+  if (facts.entry !== null) return 'queued'
+  if (facts.drop !== null) return 'removed'
+  return facts.pr.state === 'OPEN' && facts.pr.autoMerge ? 'waiting' : 'not_queued'
+}
+
+/** Whole seconds from `from` to `to`, or null when either is not a time,
+ *  or `to` comes first. */
+export const secondsBetween = (from: string | null, to: string | null): number | null => {
+  const start = Date.parse(from ?? '')
+  const end = Date.parse(to ?? '')
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return null
+  return seconds(end - start)
+}
+
+/**
+ * The time in the queue, as `{enqueued_at, left_at, queue_seconds}`.
+ * `enqueued_at` is the entry's own time, or `since` when no read saw the
+ * entry. `left_at` is the time of the drop, or the `updatedAt` of a merged
+ * pull request: GitHub sets it at the merge, and a later edit moves it. For
+ * an entry still in the queue, it is the wall clock now. Null where a time
+ * is not known.
+ */
+export const queueTime = (
+  facts: QueueFacts,
+  enqueuedAt: string | null,
+  wall: number,
+): { enqueued_at: string | null; left_at: string | null; queue_seconds: number | null } => {
+  const left = leftAt(facts, wall)
+  return { enqueued_at: enqueuedAt, left_at: left, queue_seconds: secondsBetween(enqueuedAt, left) }
+}
+
+/** The end of the time in the queue, for {@link queueTime}. */
+const leftAt = (facts: QueueFacts, wall: number): string | null => {
+  const result = queueResult(facts)
+  if (result === 'removed') return (facts.drop as QueueDrop).createdAt
+  if (result === 'queued') return new Date(wall).toISOString()
+  const updated = facts.raw.updatedAt
+  return result === 'merged' && typeof updated === 'string' ? updated : null
+}
+
+/** What `poll` hands back: the last read that succeeded, and how the reads
+ *  went. `stale` is true when the last read failed. */
+export interface Polled<T> {
+  readonly last: T
+  readonly stale: boolean
+  readonly bound: number
+  readonly reading: {
+    readonly waited: number
+    readonly reads_ok: number
+    readonly read_failures: number
+  }
+}
+
+/**
+ * Read with `read` every SHEPHERD_QUEUE_POLL seconds until `done` holds,
+ * or until SHEPHERD_QUEUE_BOUND, in the shape of `wait`: the clock counts
+ * the time of each read, the last sleep stops at the bound, and the last
+ * read decides. `first` is a read that succeeded. A read that fails is
+ * `null`. `shepherd-stack queue-wait` shares this poll.
+ */
+export const pollQueue = async <T>(
+  context: ShepherdContext,
+  first: T,
+  read: () => Promise<T | null>,
+  done: (value: T) => boolean,
+): Promise<Polled<T>> => {
+  const { env, output } = context
+  const bound = envInt(env, output.err, 'SHEPHERD_QUEUE_BOUND', QUEUE_BOUND_DEFAULT, POSITIVE_RE)
+  const interval = envInt(env, output.err, 'SHEPHERD_QUEUE_POLL', QUEUE_POLL_DEFAULT, POSITIVE_RE)
+  const started = context.now()
+  const spent = (): number => seconds(context.now() - started)
+  let last = first
+  let stale = false
+  let readsOk = 1
+  let readsFailed = 0
+  while (stale || !done(last)) {
+    const left = bound - spent()
+    if (left <= 0) break
+    await context.sleep(Math.min(interval, left) * 1000)
+    const fresh = await read()
+    if (fresh === null) {
+      readsFailed += 1
+      stale = true
+      continue
+    }
+    readsOk += 1
+    stale = false
+    last = fresh
+  }
+  return {
+    last,
+    stale,
+    bound,
+    reading: { waited: spent(), reads_ok: readsOk, read_failures: readsFailed },
+  }
+}
+
 /** gh's line for a branch that already holds its base. The head will not
  *  move, so `rebase` does not poll for it. */
 const UP_TO_DATE_RE = /already up[- ]to[- ]date/i
@@ -178,6 +336,9 @@ Usage:
   shepherd.ts shepherd-pr <path> <number> wait
   shepherd.ts shepherd-pr <path> <number> settle
   shepherd.ts shepherd-pr <path> <number> merged
+  shepherd.ts shepherd-pr <path> <number> queue [<since>]
+  shepherd.ts shepherd-pr <path> <number> queue-wait [<since>]
+  shepherd.ts shepherd-pr <path> <number> enqueue <head>
 
 Every action prints one JSON object: {"action", "ok", "detail", ...}. The
 agent running the loop decides which action comes next; this only does the
@@ -267,10 +428,52 @@ cannot make it act on the wrong pull request.
             answered, not refused. Never watches checks (that is \`wait\`),
             never comments, and never merges.
   merged    whether the pull request is MERGED, and its merge commit.
+  queue     one read of the merge queue of the pull request (#503). \`result\`
+            is merged; queued (it has an entry); removed (no entry, and a
+            removal at or after <since>); waiting (open with auto-merge and
+            no entry: GitHub adds it when the rules of the base are met); or
+            not_queued (nothing will add it). \`entry\` is {enqueuedAt,
+            state, position} or null. \`drop\` is the newest removal at or
+            after <since>, as {reason, class, createdAt}, or null. \`class\`
+            is merge_conflict, stack_invalidated, invalid_merge_commit, or
+            other for any other reason, null included. The detail quotes an
+            other reason. <since> is an ISO time: pass the enqueuedAt of the
+            last report, or the time you began to follow the pull request,
+            so that a removal of an earlier pass is not read as this one.
+            With no <since>, every removal counts. \`enqueued_at\`,
+            \`left_at\` and \`queue_seconds\` give the time in the queue:
+            from the entry's enqueuedAt (or <since> when no read saw the
+            entry) to the removal, or to the updatedAt of the merged pull
+            request (GitHub sets it at the merge; a later edit moves it).
+            For an entry still queued, \`left_at\` is now. A time not known
+            is null. ok:false when any of the three reads failed.
+  queue-wait reads the queue every SHEPHERD_QUEUE_POLL seconds until the
+            result is merged, removed or not_queued, or until
+            SHEPHERD_QUEUE_BOUND, in the shape of wait: the LAST read
+            decides, with \`bound\`, \`waited\`, \`reads_ok\`,
+            \`read_failures\` and \`read_error\`. \`failed\` when the pull
+            request waits to go in and its own checks failed: GitHub will
+            not add it. \`pending\` at the bound, with \`queue_state\` queued
+            or waiting. A bound that arrives on a failed read is ok:false.
+  enqueue   adds the pull request to the merge queue of its base with the
+            GraphQL enqueuePullRequest mutation, with <head> (a full sha) as
+            expectedHeadOid, and never with jump. It reads the queue of the
+            base first, and refuses, with no write: \`no_queue\` (the base
+            has none), \`not_open\`, \`stacked\` (a layer of a stack goes in
+            only with gh stack merge, through shepherd-stack merge),
+            \`head_moved\` (the head is not <head>), or \`unread\` (a read
+            failed, so nothing was proven). An entry already there is
+            \`queued\`, with no write. Then \`enqueued\` with \`entry\`, or
+            \`refused\` with GitHub's own words in \`reason\`. It can only add
+            to a queue. It never merges.
+
+The queue check of shepherd-status reads required status checks only. A
+required workflow of a ruleset is not read (#514), so a base whose required
+workflow has no merge_group trigger can still read as queue mode.
 
 This command never merges, never enables or disables auto-merge, never edits a
-label, and never bypasses a check. The only write is the rebase, and nothing
-else.
+label, never bypasses a check, never removes a pull request from a queue, and
+never jumps one. Its writes are the rebase and the enqueue, and nothing else.
 
 Environment:
   SHEPHERD_CI_SECONDS    typical CI wall time, from shepherd.ts shepherd-status
@@ -289,6 +492,8 @@ Environment:
   SHEPHERD_REBASE_BOUND  how long \`rebase\` reads for a moved head, in
                          seconds (default 60).
   SHEPHERD_REBASE_POLL   interval between two rebase reads (default 5).
+  SHEPHERD_QUEUE_BOUND   how long \`queue-wait\` reads, in seconds (default 540).
+  SHEPHERD_QUEUE_POLL    interval between two queue reads (default 30).
 
 Exits 0 when the action ran and reported (including ok:false refusals), 2 on
 a usage error, 1 when gh could not answer at all, and 3 on an internal error,
@@ -1181,7 +1386,223 @@ export class Shepherd {
       },
     )
   }
+  // -------------------------------------------------------- merge queue ---
+
+  /**
+   * One read of the queue of this pull request (#503): the pull request,
+   * its entry, and its newest removal at or after `since`. `since` is `""`
+   * for no limit. A removal before it belongs to an earlier pass through
+   * the queue, so it is not this pass's drop. Any of the three reads that
+   * failed makes the whole read `null`, with {@link readErr} set: a short
+   * read cannot prove that the pull request is out of the queue.
+   */
+  async queueRead(since: string): Promise<QueueFacts | null> {
+    const raw = await this.readPull()
+    if (raw === null) return null
+    const gh = this.options.gh
+    const pullRequest = this.options.number
+    const entry = await gh.mergeQueueEntry({ pullRequest })
+    if (entry.unavailable !== null) {
+      this.readErr = `the queue entry could not be read: ${entry.unavailable}`
+      return null
+    }
+    const removals = await gh.mergeQueueRemovals({ pullRequest })
+    if (removals.unavailable !== null) {
+      this.readErr = `the queue removals could not be read: ${removals.unavailable}`
+      return null
+    }
+    const floor = since === '' ? Number.NEGATIVE_INFINITY : Date.parse(since)
+    const newest = removals.rows
+      .filter((row) => Date.parse(row.createdAt) >= floor)
+      .reduce<(typeof removals.rows)[number] | null>(
+        (best, row) =>
+          best === null || Date.parse(row.createdAt) > Date.parse(best.createdAt) ? row : best,
+        null,
+      )
+    const drop =
+      newest === null
+        ? null
+        : { reason: newest.reason, class: dropClass(newest.reason), createdAt: newest.createdAt }
+    return { pr: summary(raw), raw, entry: entry.entry, drop }
+  }
+
+  /** The report of one queue read, with the time in the queue. */
+  queueFields(facts: QueueFacts, enqueuedAt: string | null): Record<string, unknown> {
+    const result = queueResult(facts)
+    return {
+      result,
+      entry: facts.entry,
+      drop: facts.drop,
+      ...queueTime(facts, enqueuedAt, this.options.context.clock()),
+      pr: facts.pr,
+    }
+  }
+
+  /** The detail of one queue read. */
+  queueDetail(facts: QueueFacts): string {
+    const result = queueResult(facts)
+    if (result === 'removed') return `removed from the queue: ${dropWords(facts.drop as QueueDrop)}`
+    if (result === 'queued') return `in the queue: ${(facts.entry as MergeQueueEntry).state}`
+    if (result === 'waiting')
+      return 'not in the queue yet; auto-merge adds it when the rules are met'
+    if (result === 'not_queued') return 'not in the queue, and nothing will add it'
+    return 'merged'
+  }
+
+  async queue(since: string): Promise<void> {
+    const facts = await this.queueRead(since)
+    if (facts === null) return this.queueUnreadable()
+    this.emit(
+      true,
+      this.queueDetail(facts),
+      this.queueFields(facts, facts.entry?.enqueuedAt ?? (since || null)),
+    )
+  }
+
+  queueUnreadable(): void {
+    this.emit(
+      false,
+      `could not read the queue of pull request #${this.options.number}: ${this.readFailure()}`,
+    )
+  }
+
+  /**
+   * Read the queue until the pull request merges, leaves the queue, or
+   * the bound passes. A pull request that waits to go in, and whose own
+   * checks failed, is `failed`: GitHub does not add it.
+   */
+  async queueWait(since: string): Promise<void> {
+    const first = await this.queueRead(since)
+    if (first === null) return this.queueUnreadable()
+    // The newest `enqueuedAt` any read saw. The entry is gone once the pull
+    // request merges or drops, so the time in the queue starts here.
+    let enqueuedAt: string | null = since || null
+    const seen = (facts: QueueFacts): QueueFacts => {
+      if (facts.entry !== null) enqueuedAt = facts.entry.enqueuedAt
+      return facts
+    }
+    seen(first)
+    const polled = await pollQueue(
+      this.options.context,
+      first,
+      async () => {
+        const facts = await this.queueRead(since)
+        return facts === null ? null : seen(facts)
+      },
+      (facts) => !QUEUE_OPEN_RESULTS.includes(queueResult(facts)) || checksFailed(facts),
+    )
+    const reading = { bound: polled.bound, ...polled.reading }
+    if (polled.stale) {
+      this.emit(
+        false,
+        `queue-wait waited ${reading.waited}s but could not re-read the queue (` +
+          `${reading.read_failures} of ${reading.reads_ok + reading.read_failures} reads failed, ` +
+          `the last among them): ${this.readErr}`,
+        { ...reading, read_error: this.readErr, pr: polled.last.pr },
+      )
+      return
+    }
+    const facts = polled.last
+    const fields = this.queueFields(facts, enqueuedAt)
+    if (QUEUE_OPEN_RESULTS.includes(queueResult(facts)) && checksFailed(facts)) {
+      this.emit(true, 'checks failed while the pull request waits to go in the queue', {
+        ...fields,
+        result: 'failed',
+        ...reading,
+        read_error: '',
+      })
+      return
+    }
+    const open = QUEUE_OPEN_RESULTS.includes(queueResult(facts))
+    this.emit(
+      true,
+      open
+        ? `${this.queueDetail(facts)}; still open after ${reading.waited}s`
+        : this.queueDetail(facts),
+      {
+        ...fields,
+        ...(open ? { result: 'pending', queue_state: fields.result } : {}),
+        ...reading,
+        read_error: '',
+      },
+    )
+  }
+
+  /**
+   * Add this pull request to the queue of its base (ruling 9 on #503). It
+   * refuses first, with no write: a base with no queue, a pull request
+   * that is not open, a layer of a stack, and a head that is not
+   * `expected`. A pull request already in the queue is answered, with no
+   * write. Then it calls the one write.
+   */
+  async enqueue(expected: string): Promise<void> {
+    const pull = await this.readPr()
+    if (pull === null) return this.unreadable()
+    const gh = this.options.gh
+    const base = String(pull.baseRefName)
+    const refuse = (result: string, detail: string, extra: Record<string, unknown> = {}) =>
+      this.emit(false, `refused: ${detail}`, { result, ...extra, pr: pull })
+    const queue = await gh.mergeQueue({ branch: base })
+    if (queue.unavailable !== null) {
+      return refuse('unread', `the merge queue of ${base} could not be read: ${queue.unavailable}`)
+    }
+    if (queue.queue === null) return refuse('no_queue', `${base} has no merge queue`)
+    if (pull.state !== 'OPEN') {
+      return refuse('not_open', `pull request is ${String(pull.state)}, not OPEN`)
+    }
+    const stacks = await gh.listOpenStacks()
+    const stack = stacks.rows.find((row) =>
+      row.layers.some((layer) => layer.number === this.options.number),
+    )
+    if (stack !== undefined) {
+      return refuse(
+        'stacked',
+        `#${this.options.number} is a layer of stack #${stack.number}; a stack goes in only ` +
+          'with gh stack merge (shepherd-stack merge)',
+        { stack: stack.number },
+      )
+    }
+    if (stacks.unavailable !== null) {
+      return refuse('unread', `the stacks could not be read: ${stacks.unavailable}`)
+    }
+    if (pull.headRefOid !== expected) {
+      return refuse('head_moved', `the head is ${String(pull.headRefOid)}, not ${expected}`)
+    }
+    const entry = await gh.mergeQueueEntry({ pullRequest: this.options.number })
+    if (entry.unavailable !== null) {
+      return refuse('unread', `the queue entry could not be read: ${entry.unavailable}`)
+    }
+    if (entry.entry !== null) {
+      this.emit(true, `already in the queue: ${entry.entry.state}`, {
+        result: 'queued',
+        entry: entry.entry,
+        pr: pull,
+      })
+      return
+    }
+    const written = await gh.enqueuePullRequest({
+      pullRequest: this.options.number,
+      expectedHeadOid: expected,
+    })
+    if (written.entry === null) {
+      this.emit(false, `GitHub refused the enqueue: ${written.unavailable}`, {
+        result: 'refused',
+        reason: written.unavailable,
+        pr: pull,
+      })
+      return
+    }
+    this.emit(true, `enqueued: ${written.entry.state}`, {
+      result: 'enqueued',
+      entry: written.entry,
+      pr: pull,
+    })
+  }
 }
+
+/** Whether the checks of a pull request that waits for the queue failed. */
+const checksFailed = (facts: QueueFacts): boolean =>
+  queueResult(facts) === 'waiting' && facts.pr.checks.state === 'failed'
 
 /** `SHEPHERD_CI_SECONDS` and `SHEPHERD_LOG_LINES`, as both shepherd step
  *  commands read them. */
@@ -1222,13 +1643,17 @@ export const resolveRepository = async (
 
 /** The action each name runs, which is also the set the usage advertises: a
  *  name with no entry here is the unknown-action refusal, so the two cannot
- *  drift apart. */
-const HANDLERS: Record<string, (worker: Shepherd) => Promise<void>> = {
+ *  drift apart. `argument` is the fourth argument, or `""`: the head that
+ *  `enqueue` expects, or the `since` time of `queue` and `queue-wait`. */
+const HANDLERS: Record<string, (worker: Shepherd, argument: string) => Promise<void>> = {
   state: (worker) => worker.state(),
   rebase: (worker) => worker.update(true),
   wait: (worker) => worker.wait(),
   settle: (worker) => worker.settle(),
   merged: (worker) => worker.merged(),
+  queue: (worker, argument) => worker.queue(argument),
+  'queue-wait': (worker, argument) => worker.queueWait(argument),
+  enqueue: (worker, argument) => worker.enqueue(argument),
 }
 
 /** The command, with everything it did not expect still to be caught. */
@@ -1276,6 +1701,12 @@ const shepherdPr = async (
     return refuse(HELP, 2)
   }
 
+  // The fourth argument, checked before any gh call: a usage error costs
+  // nothing.
+  const argument = argv[3] ?? ''
+  const usage = argumentRefusal(action, argument)
+  if (usage !== null) return refuse(usage, 2)
+
   const name = await resolveRepository(target, context)
   if (typeof name !== 'string') return refuse(name.refusal, 1)
 
@@ -1289,8 +1720,21 @@ const shepherdPr = async (
       context,
       gh: context.createGh({ cwd: target, repository: String(name) }),
     }),
+    argument,
   )
   return 0
+}
+
+/** Why the fourth argument of `action` is a usage error, or null. Only
+ *  `enqueue`, `queue` and `queue-wait` read one. */
+export const argumentRefusal = (action: string, argument: string): string | null => {
+  if (action === 'enqueue') {
+    return SHA_RE.test(argument) ? null : `enqueue needs the full head sha: ${argument}`
+  }
+  if (action === 'queue' || action === 'queue-wait') {
+    return argument === '' || !Number.isNaN(Date.parse(argument)) ? null : `not a time: ${argument}`
+  }
+  return null
 }
 
 /**
