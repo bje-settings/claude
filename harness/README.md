@@ -89,7 +89,8 @@ change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullReque
 `listOpenPullRequests`, `listOpenPullRequestHeads`, `listOpenPullRequestLinks`, `requiredContexts`,
 `requiredReviews`, `viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`, `branchRef`,
 `listRunJobs`, `commitDate`, `listOpenStacks`, `mergeMethods`, `mergeStack`,
-`listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`.
+`listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`, `mergeQueue`,
+`workflowRunPath`, `fileText`, `pullRequestFiles`, `mergeQueueEntry`, `mergeQueueRemovals`.
 
 `issueStates` answers with a record, `{ states, unavailable }`. It never throws.
 So a test has nothing else to register beside its one reply.
@@ -113,6 +114,12 @@ is a write, and throws on a failure, as `addComment` does.
 
 `repositoryStatus` answers `{ repositories, unavailable }` and never throws either. The
 SessionStart hook reads it (#230).
+
+The merge queue reads of #503 never throw either. `mergeQueue` answers `{ queue, unavailable }`,
+`workflowRunPath` `{ path, unavailable }`, `fileText` `{ text, unavailable }`, `pullRequestFiles`
+`{ files, unavailable }`, `mergeQueueEntry` `{ entry, unavailable }`, and `mergeQueueRemovals`
+`{ rows, unavailable }`. A null value with no reason is an answer for `mergeQueue` (no queue) and
+`mergeQueueEntry` (not in a queue).
 
 `missing` is true only when GitHub itself said the number does not exist. It is false for every
 other reason the read came back short. A test that registers a reply must say which case it means.

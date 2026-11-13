@@ -81,6 +81,9 @@ const NO_RULE = {
   unavailable: null,
 }
 
+/** A base with no merge queue, as `mergeQueue` answers it (#503). */
+const NO_QUEUE = { queue: null, unavailable: null }
+
 /** What `gh repo view` answered with in the capture. */
 const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
 
@@ -322,6 +325,7 @@ const replay = async (name: string): Promise<void> => {
         viewRepository: REPOSITORY,
         listRuns: [],
         requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
         ...ARRANGEMENTS[name]?.replies,
       },
     }),
@@ -395,7 +399,12 @@ it('takes the working directory as the target when none is given', async () => {
       argv: [],
       gh: createGhServer({
         prs: [depPr(1)],
-        replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+        replies: {
+          viewRepository: REPOSITORY,
+          listRuns: [],
+          requiredReviews: NO_RULE,
+          mergeQueue: NO_QUEUE,
+        },
       }),
     }
   })
@@ -413,7 +422,12 @@ it('asks for every open pull request, with the window it reads, when no label is
   const queries: unknown[] = []
   const server = createGhServer({
     prs: [],
-    replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+    replies: {
+      viewRepository: REPOSITORY,
+      listRuns: [],
+      requiredReviews: NO_RULE,
+      mergeQueue: NO_QUEUE,
+    },
   })
 
   let target = ''
@@ -441,7 +455,12 @@ it('passes the one label given through to the query', async () => {
   const queries: unknown[] = []
   const server = createGhServer({
     prs: [],
-    replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+    replies: {
+      viewRepository: REPOSITORY,
+      listRuns: [],
+      requiredReviews: NO_RULE,
+      mergeQueue: NO_QUEUE,
+    },
   })
 
   const result = await drive((_sandbox, repo) => ({
@@ -464,7 +483,12 @@ it('refuses a third argument, naming one label per run', async () => {
     argv: [repo, 'dependencies', 'enhancement'],
     gh: createGhServer({
       prs: [],
-      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+      replies: {
+        viewRepository: REPOSITORY,
+        listRuns: [],
+        requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
+      },
     }),
   }))
 
@@ -499,7 +523,12 @@ it('exits 1 when the open window saturates, and names the fix', async () => {
     argv: [],
     gh: createGhServer({
       prs: openPrs,
-      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+      replies: {
+        viewRepository: REPOSITORY,
+        listRuns: [],
+        requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
+      },
     }),
   }))
 
@@ -516,7 +545,12 @@ it('does not saturate one below the limit', async () => {
     argv: [],
     gh: createGhServer({
       prs: openPrs,
-      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+      replies: {
+        viewRepository: REPOSITORY,
+        listRuns: [],
+        requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
+      },
     }),
   }))
 
@@ -726,7 +760,12 @@ it('lets a reader that left stop the report, and nothing else', async () => {
     argv: [],
     gh: createGhServer({
       prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+      replies: {
+        viewRepository: REPOSITORY,
+        listRuns: [],
+        requiredReviews: NO_RULE,
+        mergeQueue: NO_QUEUE,
+      },
     }),
     reader: closedPipe,
   }))
@@ -774,7 +813,10 @@ const statusOf = (argv: readonly string[], prs: PullRequestRow[], extra: Partial
   drive((_sandbox, repo) => ({
     argv: [repo, ...argv],
     gh: {
-      ...createGhServer({ prs, replies: { viewRepository: REPOSITORY, listRuns: [] } }),
+      ...createGhServer({
+        prs,
+        replies: { viewRepository: REPOSITORY, listRuns: [], mergeQueue: NO_QUEUE },
+      }),
       ...extra,
     },
   }))
@@ -809,7 +851,7 @@ it('makes the same pull request a target with --all, in any position, beside a l
     const queries: unknown[] = []
     const server = createGhServer({
       prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, listRuns: [] },
+      replies: { viewRepository: REPOSITORY, listRuns: [], mergeQueue: NO_QUEUE },
     })
     const result = await drive((_sandbox, repo) => ({
       argv: [repo, ...argv],
@@ -984,4 +1026,172 @@ it('reads resolved threads as resolved, and asks for no threads when the rule do
   const unasked = await statusOf([], [depPr(1)], { requiredReviews: async () => rules(0) })
   expect(unasked.status).toBe(0)
   expect(JSON.parse(unasked.stdout).targets[0].threads).toBe('not_required')
+})
+
+// --- the merge queue (#503) --------------------------------------------------
+
+/** A merge queue rule, as `mergeQueue` reads it. */
+const QUEUE: GhResults['mergeQueue'] = {
+  queue: {
+    checkResponseTimeoutMinutes: 60,
+    groupingStrategy: 'ALLGREEN',
+    maxEntriesToBuild: 5,
+    maxEntriesToMerge: 5,
+    mergeMethod: 'SQUASH',
+    minEntriesToMerge: 1,
+    minEntriesToMergeWaitMinutes: 5,
+  },
+  unavailable: null,
+}
+
+/** The endpoints a base with a queue reads, over `depPr(1)` and `depPr(2)`.
+ *  `test` reports from run 11 on #1. The workflow file is `workflow`. */
+const queued = (workflow: string): Partial<GhClient> => ({
+  requiredReviews: async () => rules(0),
+  mergeQueue: async () => QUEUE,
+  requiredContexts: async () => ({ contexts: ['test'], unavailable: null }),
+  workflowRunPath: async ({ run }) => ({
+    path: run === '11' ? '.github/workflows/ci.yml' : null,
+    unavailable: run === '11' ? null : `run ${run} is not this one`,
+  }),
+  fileText: async ({ path, ref }) => ({
+    text: path === '.github/workflows/ci.yml' && ref === 'main' ? workflow : null,
+    unavailable: null,
+  }),
+  pullRequestFiles: async ({ pullRequest }) => ({
+    files: pullRequest === 1 ? ['package.json', 'pnpm-lock.yaml'] : ['pnpm-lock.yaml'],
+    unavailable: null,
+  }),
+})
+
+it('reports queue mode for a base whose required check comes from a merge_group workflow', async () => {
+  const result = await statusOf(
+    ['dependencies'],
+    [depPr(1), depPr(2)],
+    queued('on:\n  pull_request:\n  merge_group:\n'),
+  )
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe('')
+  const document = JSON.parse(result.stdout)
+  expect(document.queue).toEqual({
+    main: { present: true, rule: QUEUE.queue, mode: 'queue', blocking: [], unavailable: null },
+  })
+  expect(document.targets.map((target: { files: unknown }) => target.files)).toEqual([
+    ['package.json', 'pnpm-lock.yaml'],
+    ['pnpm-lock.yaml'],
+  ])
+  // The fields already there keep their place: `files` and `queue` go on
+  // the end.
+  expect(Object.keys(document)).toEqual([
+    'repo',
+    'default_branch',
+    'ci_seconds',
+    'targets',
+    'not_ready',
+    'queue',
+  ])
+  expect(Object.keys(document.targets[0]).slice(-2)).toEqual(['threads', 'files'])
+})
+
+it('reports serial mode, and names the workflow, when it has no merge_group trigger', async () => {
+  // `pullRequestFiles` would throw here: a base in serial mode reads no
+  // files.
+  const extra = { ...queued('on: [pull_request]\n') }
+  delete extra.pullRequestFiles
+  const result = await statusOf(['dependencies'], [depPr(1)], extra)
+
+  expect(result.status).toBe(0)
+  const document = JSON.parse(result.stdout)
+  expect(document.queue.main).toEqual({
+    present: true,
+    rule: QUEUE.queue,
+    mode: 'serial',
+    blocking: [
+      {
+        context: 'test',
+        reason: 'workflow .github/workflows/ci.yml has no merge_group trigger',
+        workflow: '.github/workflows/ci.yml',
+      },
+    ],
+    unavailable: null,
+  })
+  expect(document.targets[0].files).toBeNull()
+})
+
+it('reads the files only of a target whose own base is in queue mode', async () => {
+  // #2 merges into `release`, which has no queue, so its files are not read.
+  const extra = queued('on:\n  pull_request:\n  merge_group:\n')
+  const result = await statusOf(
+    ['dependencies'],
+    [depPr(1), { ...depPr(2), baseRefName: 'release' }],
+    {
+      ...extra,
+      mergeQueue: async ({ branch }) => (branch === 'main' ? QUEUE : NO_QUEUE),
+      pullRequestFiles: async ({ pullRequest }) => {
+        if (pullRequest !== 1) throw new Error('a base in serial mode reads no files')
+        return { files: ['package.json'], unavailable: null }
+      },
+    },
+  )
+
+  expect(result.status).toBe(0)
+  const document = JSON.parse(result.stdout)
+  expect(document.queue.main.mode).toBe('queue')
+  expect(document.queue.release.mode).toBe('serial')
+  expect(document.targets.map((target: { files: unknown }) => target.files)).toEqual([
+    ['package.json'],
+    null,
+  ])
+})
+
+it('reads no run, workflow or file for a base with no queue', async () => {
+  // `statusOf` registers no `workflowRunPath`, `fileText` or
+  // `pullRequestFiles`, so a read of any of them would throw, and the
+  // command would exit 3.
+  const result = await statusOf(['dependencies'], [depPr(1)], {
+    requiredReviews: async () => rules(0),
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe('')
+  const document = JSON.parse(result.stdout)
+  expect(document.queue).toEqual({
+    main: { present: false, rule: null, mode: 'serial', blocking: [], unavailable: null },
+  })
+  expect(document.targets[0].files).toBeNull()
+})
+
+it('reports a queue read that failed as serial, and says why', async () => {
+  const result = await statusOf(['dependencies'], [depPr(1)], {
+    requiredReviews: async () => rules(0),
+    mergeQueue: async () => ({ queue: null, unavailable: 'gh: HTTP 502' }),
+  })
+
+  expect(result.status).toBe(0)
+  expect(JSON.parse(result.stdout).queue.main).toEqual({
+    present: null,
+    rule: null,
+    mode: 'serial',
+    blocking: [],
+    unavailable: 'gh: HTTP 502',
+  })
+  expect(result.stderr).toBe(
+    'the merge queue of main is unavailable: gh: HTTP 502; mode is serial\n',
+  )
+})
+
+it('reads no queue for a base that only a pull request left out uses', async () => {
+  // #1 needs an approval, so no target uses `main`, and no queue is read.
+  const result = await statusOf(['dependencies'], [depPr(1)], {
+    requiredReviews: async () => rules(1),
+    mergeQueue: async () => {
+      throw new Error('a base no target uses must not be read')
+    },
+  })
+
+  expect(result.status).toBe(0)
+  const document = JSON.parse(result.stdout)
+  expect(document.queue).toEqual({})
+  expect(document.not_ready).toHaveLength(1)
 })

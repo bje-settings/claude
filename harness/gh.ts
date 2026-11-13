@@ -44,6 +44,9 @@ export type {
   MergedHead,
   MergedPullRequestQuery,
   MergeMethod,
+  MergeQueueEntry,
+  MergeQueueRemoval,
+  MergeQueueRule,
   MilestoneSummary,
   PagedResult,
   PullRequestDetail,
@@ -156,5 +159,11 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     listPullRequestStatuses: async () => answer(replies, 'listPullRequestStatuses'),
     createCommitStatus: async () => answer(replies, 'createCommitStatus'),
     repositoryStatus: async () => answer(replies, 'repositoryStatus'),
+    mergeQueue: async () => answer(replies, 'mergeQueue'),
+    workflowRunPath: async () => answer(replies, 'workflowRunPath'),
+    fileText: async () => answer(replies, 'fileText'),
+    pullRequestFiles: async () => answer(replies, 'pullRequestFiles'),
+    mergeQueueEntry: async () => answer(replies, 'mergeQueueEntry'),
+    mergeQueueRemovals: async () => answer(replies, 'mergeQueueRemovals'),
   }
 }

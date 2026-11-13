@@ -432,6 +432,38 @@ export interface CommitStatus {
  *  status"). */
 export type CommitStatusState = 'error' | 'failure' | 'pending' | 'success'
 
+/** The `merge_queue` rule of a branch, with the parameters that REST "Get
+ *  rules for a branch" gives it. The strings are GitHub's own words, such
+ *  as `ALLGREEN` and `SQUASH`. */
+export interface MergeQueueRule {
+  readonly checkResponseTimeoutMinutes: number
+  /** `ALLGREEN` or `HEADGREEN`. */
+  readonly groupingStrategy: string
+  readonly maxEntriesToBuild: number
+  readonly maxEntriesToMerge: number
+  /** `MERGE`, `SQUASH` or `REBASE`. */
+  readonly mergeMethod: string
+  readonly minEntriesToMerge: number
+  readonly minEntriesToMergeWaitMinutes: number
+}
+
+/** One pull request in a merge queue, from GraphQL `mergeQueueEntry`. */
+export interface MergeQueueEntry {
+  readonly enqueuedAt: string
+  /** `QUEUED`, `AWAITING_CHECKS`, `MERGEABLE`, `UNMERGEABLE` or `LOCKED`. */
+  readonly state: string
+  /** The place in the queue, as GitHub gives it. */
+  readonly position: number
+}
+
+/** One `RemovedFromMergeQueueEvent` of a pull request. */
+export interface MergeQueueRemoval {
+  /** GitHub's own words. The schema types it as a free `String` that can be
+   *  null, so a caller matches it as text (ruling 7 on #503). */
+  readonly reason: string | null
+  readonly createdAt: string
+}
+
 /**
  * What a paginated GraphQL read answers with: the rows it could read, and the
  * reason it could not read more. This is the shape {@link
@@ -585,6 +617,37 @@ export interface GhResults {
     readonly repositories: Readonly<Record<string, RepositoryStatus>>
     readonly unavailable: string | null
   }
+  /** The merge queue rule of one branch. A null `queue` with no reason
+   *  means the branch has no queue. */
+  mergeQueue: {
+    readonly queue: MergeQueueRule | null
+    readonly unavailable: string | null
+  }
+  /** The workflow file of one Actions run, or null when it could not be
+   *  read. */
+  workflowRunPath: {
+    readonly path: string | null
+    readonly unavailable: string | null
+  }
+  /** The text of one file at one ref, or null when it could not be read. */
+  fileText: {
+    readonly text: string | null
+    readonly unavailable: string | null
+  }
+  /** Each changed file of one pull request, or null when the list could
+   *  not be read in full. */
+  pullRequestFiles: {
+    readonly files: readonly string[] | null
+    readonly unavailable: string | null
+  }
+  /** The queue entry of one pull request. A null `entry` with no reason
+   *  means the pull request is not in a queue. */
+  mergeQueueEntry: {
+    readonly entry: MergeQueueEntry | null
+    readonly unavailable: string | null
+  }
+  /** Each time a merge queue removed one pull request, oldest first. */
+  mergeQueueRemovals: PagedResult<MergeQueueRemoval>
 }
 
 export type GhEndpoint = keyof GhResults
@@ -924,6 +987,69 @@ export interface GhClient {
     repos: readonly string[],
     options: { readonly boundMs: number },
   ): Promise<GhResults['repositoryStatus']>
+  /**
+   * The `merge_queue` rule of `branch`, from the endpoint that
+   * {@link GhClient.requiredContexts} reads (ruling 5 on #503). It is a
+   * second method, not a wider result, for the reason that
+   * {@link GhClient.requiredReviews} gives. So it is one more request to
+   * that endpoint.
+   *
+   * A null `queue` is an answer: no rule of that type applies, or the plan
+   * has no rulesets. With two such rules, the first one is the answer.
+   * Never throws, for {@link PagedResult}'s reason. A rule that is not the
+   * shape REST promises is a null `queue`, with the reason beside it.
+   */
+  mergeQueue(query: { readonly branch: string }): Promise<GhResults['mergeQueue']>
+  /**
+   * The workflow file of one Actions run, through REST
+   * (`repos/{owner}/{name}/actions/runs/{run}`): its `path`, such as
+   * `.github/workflows/ci.yml` (ruling 6 on #503).
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  workflowRunPath(query: { readonly run: string }): Promise<GhResults['workflowRunPath']>
+  /**
+   * The text of the file at `path` on `ref`, through REST
+   * (`repos/{owner}/{name}/contents/{path}?ref={ref}`), decoded from
+   * base64.
+   *
+   * A directory, a file of more than 1 MB (which REST gives with no
+   * content), and a path that is not there are each a null `text`, with
+   * the reason beside it. A refusal is never an empty text: a caller would
+   * read that as a file with nothing in it. Never throws, for
+   * {@link PagedResult}'s reason.
+   */
+  fileText(query: { readonly path: string; readonly ref: string }): Promise<GhResults['fileText']>
+  /**
+   * The path of each changed file of one pull request, through REST
+   * (`repos/{owner}/{name}/pulls/{number}/files`). A renamed file gives its
+   * old path too.
+   *
+   * It reads every page of 100. REST lists 3000 files at most, so a pull
+   * request at that limit is a null `files`: a short list cannot prove
+   * that two pull requests share no file. Any page that fails is a null
+   * `files` too. Never throws, for {@link PagedResult}'s reason.
+   */
+  pullRequestFiles(query: { readonly pullRequest: number }): Promise<GhResults['pullRequestFiles']>
+  /**
+   * The merge queue entry of one pull request, through GraphQL
+   * `PullRequest.mergeQueueEntry` (ruling 8 on #503).
+   *
+   * A null `entry` with no reason means the pull request is not in a
+   * queue. A pull request that GraphQL does not give is a null `entry`
+   * with the reason beside it. Never throws, for {@link PagedResult}'s
+   * reason.
+   */
+  mergeQueueEntry(query: { readonly pullRequest: number }): Promise<GhResults['mergeQueueEntry']>
+  /**
+   * The newest 100 `RemovedFromMergeQueueEvent` items of one pull request,
+   * oldest first, from its timeline (ruling 7 on #503). An empty list is an
+   * answer. An older removal past the 100 is not read, and `unavailable`
+   * says so. Never throws, for {@link PagedResult}'s reason.
+   */
+  mergeQueueRemovals(query: {
+    readonly pullRequest: number
+  }): Promise<GhResults['mergeQueueRemovals']>
 }
 
 /**
@@ -1666,6 +1792,26 @@ const PULL_REQUEST_STATUSES_QUERY = `query($owner: String!, $name: String!, $num
   }
 }`
 
+/** The queue entry of one pull request (ruling 8 on #503). */
+const MERGE_QUEUE_ENTRY_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { mergeQueueEntry { enqueuedAt state position } }
+  }
+}`
+
+/** The newest removals from a merge queue of one pull request (ruling 7 on
+ *  #503). `last`, so a long timeline keeps the removals a caller acts on. */
+const MERGE_QUEUE_REMOVALS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      timelineItems(last: ${SWEEP_PAGE}, itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT]) {
+        pageInfo { hasPreviousPage }
+        nodes { ... on RemovedFromMergeQueueEvent { reason createdAt } }
+      }
+    }
+  }
+}`
+
 /** An integer, or null for anything else. GraphQL answers a count and a
  *  number as JSON numbers. A value that is not one is a reply this file
  *  does not recognise, not a zero to carry on with. */
@@ -2260,6 +2406,95 @@ const ruleMergeMethodsOf = (rules: readonly unknown[]): MergeMethod[] | null => 
     allowed = allowed.filter((method) => listed.includes(method))
   }
   return allowed
+}
+
+/**
+ * The first `merge_queue` rule, `null` for none, or `undefined` when that
+ * rule is not the shape REST promises. Every parameter must be there, for
+ * {@link requiredContextsOf}' grounds: a queue read with a part left out
+ * is a queue a caller cannot describe.
+ */
+const mergeQueueOf = (rules: readonly unknown[]): MergeQueueRule | null | undefined => {
+  const rule = rules.map(asRecord).find((entry) => entry?.type === 'merge_queue')
+  if (rule === undefined) return null
+  const parameters = asRecord(rule.parameters)
+  const read = {
+    checkResponseTimeoutMinutes: asInteger(parameters?.check_response_timeout_minutes),
+    groupingStrategy: asText(parameters?.grouping_strategy),
+    maxEntriesToBuild: asInteger(parameters?.max_entries_to_build),
+    maxEntriesToMerge: asInteger(parameters?.max_entries_to_merge),
+    mergeMethod: asText(parameters?.merge_method),
+    minEntriesToMerge: asInteger(parameters?.min_entries_to_merge),
+    minEntriesToMergeWaitMinutes: asInteger(parameters?.min_entries_to_merge_wait_minutes),
+  }
+  if (Object.values(read).some((value) => value === null)) return undefined
+  return read as MergeQueueRule
+}
+
+/** A repository path with each segment encoded, so a `/` stays a
+ *  separator and any other character reaches REST as itself. */
+const encodedPath = (path: string): string => path.split('/').map(encodeURIComponent).join('/')
+
+/**
+ * The text of one contents reply, or the reason it has none. Only a
+ * `file` with `base64` content is text. REST gives a directory as a list,
+ * and a file of more than 1 MB with the encoding `none` and no content.
+ */
+const readFileText = (value: unknown, where: string): GhResults['fileText'] => {
+  const reply = asRecord(value)
+  if (reply?.type !== 'file') {
+    return { text: null, unavailable: `${where} is not a file${errorBodyOf(value)}` }
+  }
+  const content = asText(reply.content)
+  if (reply.encoding !== 'base64' || content === null) {
+    return {
+      text: null,
+      unavailable: `${where} came with no base64 content (a file of more than 1 MB has none)`,
+    }
+  }
+  return { text: Buffer.from(content, 'base64').toString('utf8'), unavailable: null }
+}
+
+/** The most files REST lists for one pull request ("List pull requests
+ *  files"). A list of this length can be short. */
+const PULL_FILE_LIMIT = 3000
+
+/** The files of one pull request on one page. */
+const PULL_FILE_PAGE = 100
+
+/** The paths of one page of `pulls/{number}/files`, or null when an entry
+ *  has no `filename`. A renamed file gives its old path too, as
+ *  {@link readComparison} does. */
+const pullFilesOf = (entries: readonly unknown[]): string[] | null => {
+  const files: string[] = []
+  for (const entry of entries) {
+    const file = asRecord(entry)
+    const filename = asText(file?.filename)
+    if (filename === null) return null
+    files.push(filename)
+    const previous = asText(file?.previous_filename)
+    if (previous !== null) files.push(previous)
+  }
+  return files
+}
+
+/** One queue entry, or `undefined` when it is not the shape asked for. */
+const readMergeQueueEntry = (value: unknown): MergeQueueEntry | undefined => {
+  const entry = asRecord(value)
+  const enqueuedAt = asText(entry?.enqueuedAt)
+  const state = asText(entry?.state)
+  const position = asInteger(entry?.position)
+  if (enqueuedAt === null || state === null || position === null) return undefined
+  return { enqueuedAt, state, position }
+}
+
+/** One removal event, or null when it is not the shape asked for. */
+const readMergeQueueRemoval = (value: unknown): MergeQueueRemoval | null => {
+  const event = asRecord(value)
+  const createdAt = asText(event?.createdAt)
+  const reason = event?.reason
+  if (createdAt === null || (reason !== null && typeof reason !== 'string')) return null
+  return { reason, createdAt }
 }
 
 /** Every value {@link CompareStatus} can hold, for {@link ISSUE_STATES}'
@@ -3442,6 +3677,137 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         if (answer.reason !== null) reasons.push(answer.reason)
       }
       return { repositories, unavailable: joinedReasons(reasons) }
+    },
+
+    // The same read and the same refusals as `requiredContexts`, with the
+    // `merge_queue` rule as the answer. A plan limit is "no queue".
+    mergeQueue: async (query) => {
+      const answer = await restJson(`rules/branches/${encodeURIComponent(query.branch)}`)
+      if (answer.unavailable !== null) return { queue: null, unavailable: answer.unavailable }
+      const rules = isPlanLimit(answer.value) ? [] : answer.value
+      if (!Array.isArray(rules)) {
+        return {
+          queue: null,
+          unavailable: `the rules for ${query.branch} were not a list of rules${errorBodyOf(answer.value)}`,
+        }
+      }
+      const queue = mergeQueueOf(rules)
+      if (queue === undefined) {
+        return {
+          queue: null,
+          unavailable: `a merge-queue rule on ${query.branch} could not be read`,
+        }
+      }
+      return { queue, unavailable: null }
+    },
+
+    // A run that does not exist answers a 404 body with no `path`.
+    workflowRunPath: async (query) => {
+      const answer = await restJson(`actions/runs/${encodeURIComponent(query.run)}`)
+      if (answer.unavailable !== null) return { path: null, unavailable: answer.unavailable }
+      const path = asText(asRecord(answer.value)?.path)
+      if (path === null || path === '') {
+        return {
+          path: null,
+          unavailable: `run ${query.run} carried no workflow path${errorBodyOf(answer.value)}`,
+        }
+      }
+      return { path, unavailable: null }
+    },
+
+    fileText: async (query) => {
+      const answer = await restJson(
+        `contents/${encodedPath(query.path)}?ref=${encodeURIComponent(query.ref)}`,
+      )
+      if (answer.unavailable !== null) return { text: null, unavailable: answer.unavailable }
+      return readFileText(answer.value, `${query.path} at ${query.ref}`)
+    },
+
+    // A short page ends the read. A page that fails, or a list at the REST
+    // limit, costs the whole list: a caller compares it with other lists.
+    pullRequestFiles: async (query) => {
+      const parts = await repositoryParts()
+      if (parts.unavailable !== null) return { files: null, unavailable: parts.unavailable }
+      const files: string[] = []
+      const path = `pulls/${query.pullRequest}/files?per_page=${PULL_FILE_PAGE}`
+      for (let page = 1; ; page += 1) {
+        const answer = await restJsonOf(parts, `${path}&page=${page}`)
+        if (answer.unavailable !== null) return { files: null, unavailable: answer.unavailable }
+        const entries = answer.value
+        const read = Array.isArray(entries) ? pullFilesOf(entries) : null
+        if (read === null) {
+          return {
+            files: null,
+            unavailable: `the files of pull request ${query.pullRequest} could not be read${errorBodyOf(entries)}`,
+          }
+        }
+        files.push(...read)
+        if ((entries as unknown[]).length < PULL_FILE_PAGE) return { files, unavailable: null }
+        if (page * PULL_FILE_PAGE >= PULL_FILE_LIMIT) {
+          return {
+            files: null,
+            unavailable: `pull request ${query.pullRequest} has ${PULL_FILE_LIMIT} files or more, the most REST lists`,
+          }
+        }
+      }
+    },
+
+    mergeQueueEntry: async (query) => {
+      const answer = await queryOnce(
+        MERGE_QUEUE_ENTRY_QUERY,
+        // `-F`: `number` is an `Int!`, as in `viewPullRequestDetail`.
+        ['-F', `number=${query.pullRequest}`],
+        'pullRequest',
+      )
+      if (answer.data === null) return { entry: null, unavailable: answer.unavailable }
+      const pullRequest = asRecord(answer.data.pullRequest)
+      const said = `the queue entry of pull request ${query.pullRequest} could not be read`
+      // Only a pull request that names its entry as null is out of a queue.
+      if (pullRequest?.mergeQueueEntry === null) {
+        return { entry: null, unavailable: answer.unavailable }
+      }
+      const entry = readMergeQueueEntry(pullRequest?.mergeQueueEntry)
+      if (entry === undefined) {
+        return {
+          entry: null,
+          unavailable: answer.unavailable === null ? said : `${said}: ${answer.unavailable}`,
+        }
+      }
+      return { entry, unavailable: answer.unavailable }
+    },
+
+    mergeQueueRemovals: async (query) => {
+      const answer = await queryOnce(
+        MERGE_QUEUE_REMOVALS_QUERY,
+        ['-F', `number=${query.pullRequest}`],
+        'pullRequest',
+      )
+      if (answer.data === null) return { rows: [], unavailable: answer.unavailable }
+      const items = asRecord(asRecord(answer.data.pullRequest)?.timelineItems)
+      const nodes = nodesOf(items)
+      const reasons: string[] = []
+      const rows: MergeQueueRemoval[] = []
+      if (nodes === null) {
+        reasons.push(`the queue removals of pull request ${query.pullRequest} could not be read`)
+      }
+      let unreadable = 0
+      for (const node of nodes ?? []) {
+        const row = readMergeQueueRemoval(node)
+        if (row === null) unreadable += 1
+        else rows.push(row)
+      }
+      if (unreadable > 0) {
+        reasons.push(
+          `${unreadable} queue removal(s) of pull request ${query.pullRequest} could not be read`,
+        )
+      }
+      if (asRecord(items?.pageInfo)?.hasPreviousPage === true) {
+        reasons.push(
+          `pull request ${query.pullRequest} has more than the ${SWEEP_PAGE} queue removals this reads`,
+        )
+      }
+      if (answer.unavailable !== null) reasons.push(answer.unavailable)
+      return { rows, unavailable: joinedReasons(reasons) }
     },
   }
   return client

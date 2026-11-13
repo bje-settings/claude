@@ -32,7 +32,13 @@
 // `cd0d515`. Each reference stays because it says where a rule came from.
 
 import { accessSync, constants, statSync } from 'node:fs'
-import type { GhClient, PullRequestStack, RequiredReviews } from './lib/gh.ts'
+import type {
+  GhClient,
+  GhResults,
+  MergeQueueRule,
+  PullRequestStack,
+  RequiredReviews,
+} from './lib/gh.ts'
 import type { Output } from './lib/streams.ts'
 
 /**
@@ -1140,3 +1146,384 @@ export const jobLink = (link: unknown): { readonly run: string; readonly job: st
   const [, run = '', job = ''] = parts
   return run === '' ? null : { run, job }
 }
+
+// --- the merge queue (#503) -------------------------------------------------
+
+/**
+ * One line of YAML with its comment removed. A `#` starts a comment only
+ * at the start of the line or after a space, and never inside a quoted
+ * scalar. A quote starts a scalar only at the start of a token, so the
+ * apostrophe in `don't` does not.
+ */
+const uncommented = (line: string): string => {
+  let quote: string | null = null
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line.charAt(index)
+    const before = index === 0 ? ' ' : line.charAt(index - 1)
+    if (quote !== null) {
+      if (char === quote) quote = null
+    } else if ((char === '"' || char === "'") && /[\s[{,:]/.test(before)) {
+      quote = char
+    } else if (char === '#' && /\s/.test(before)) {
+      return line.slice(0, index)
+    }
+  }
+  return line
+}
+
+/** A YAML scalar with one pair of quotes removed from its ends. */
+const unquoted = (word: string): string => {
+  const text = word.trim()
+  return /^(["']).*\1$/.test(text) ? text.slice(1, -1) : text
+}
+
+/** The inside of a flow collection, split at each comma at its own depth. */
+const flowParts = (inside: string): string[] => {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < inside.length; index += 1) {
+    const char = inside.charAt(index)
+    if (char === '[' || char === '{') depth += 1
+    else if (char === ']' || char === '}') depth -= 1
+    else if (char === ',' && depth === 0) {
+      parts.push(inside.slice(start, index))
+      start = index + 1
+    }
+  }
+  parts.push(inside.slice(start))
+  return parts
+}
+
+/** The event that one entry names: the key before `: `, or the whole
+ *  entry when it has no key. */
+const eventName = (entry: string): string => unquoted(entry.split(/:(?:\s|$)/)[0] as string)
+
+/** The events of an `on:` value on the same line: one event, a flow list,
+ *  or a flow map. A flow collection that does not close on this line names
+ *  no event. */
+const inlineEvents = (value: string): string[] => {
+  const flow = /^[[{](.*)[\]}]$/.exec(value)
+  return flow === null ? [unquoted(value)] : flowParts(flow[1] as string).map(eventName)
+}
+
+/** The number of spaces in front of a line. */
+const indentOf = (line: string): number => line.length - line.trimStart().length
+
+/**
+ * The events of an `on:` block: each key, or each sequence item, at the
+ * indent of the first line under `on:`. A line deeper than that is part of
+ * one event, such as its `types:` or `branches:`. The block ends at the
+ * first line with less indent. A sequence may sit at the indent of `on:`
+ * itself, as YAML allows.
+ */
+const blockEvents = (lines: readonly string[]): string[] => {
+  const events: string[] = []
+  let indent: number | null = null
+  for (const line of lines) {
+    const text = line.trim()
+    if (text === '') continue
+    const at = indentOf(line)
+    const item = /^-(?:\s|$)/.test(text)
+    indent ??= at
+    if (at < indent || (at === 0 && !item)) break
+    if (at === indent) events.push(eventName(item ? text.slice(1) : text))
+  }
+  return events
+}
+
+/** The `on` key at the start of a line, with its value, if any. */
+const ON_KEY = /^(?:on|"on"|'on')[ \t]*:(?:[ \t]+(.*))?$/
+
+/**
+ * Whether a workflow file's text has a `merge_group` trigger (ruling 6 on
+ * #503). No YAML parser ships with a plugin, so this reads the one key it
+ * needs, and leans to false. A false "yes" costs more: each queue entry
+ * then waits out the check timeout, and the queue removes it.
+ *
+ * It reads the first `on` key at the start of a line, plain or quoted.
+ * The forms are `on: merge_group`, a flow list or flow map, and a block of
+ * keys or of sequence items. `merge_group` must be an event of `on`
+ * itself. In a comment, in a job, in a string, or under another event
+ * (`branches: [merge_group]`), it is not a trigger. `true:` is not read as
+ * `on`: GitHub documents the key as `on`, and a YAML 1.1 reader is the
+ * only one that turns `on` into `true`. A flow collection that spans more
+ * than one line names no event here.
+ */
+export const hasMergeGroupTrigger = (text: string): boolean => {
+  const lines = text.split(/\r?\n/).map((line) => uncommented(line).trimEnd())
+  const at = lines.findIndex((line) => ON_KEY.test(line))
+  if (at === -1) return false
+  const [, value = ''] = ON_KEY.exec(lines[at] as string) as RegExpExecArray
+  const events = value === '' ? blockEvents(lines.slice(at + 1)) : inlineEvents(value)
+  return events.includes('merge_group')
+}
+
+/** Why a required context blocks queue mode (#503). */
+export const NO_HEAD_ROW = 'has not reported on any target head'
+export const NOT_ACTIONS = 'is not reported by an Actions run'
+export const noMergeGroup = (path: string): string => `workflow ${path} has no merge_group trigger`
+export const notProven = (reason: string): string => `could not be proven: ${reason}`
+
+/** One required context that keeps a base on the serial path. `workflow`
+ *  is the workflow file, when the context maps to one. */
+export interface QueueBlock {
+  readonly context: string
+  readonly reason: string
+  readonly workflow: string | null
+}
+
+/** What `shepherd-status` reports about the merge queue of one base. */
+export interface QueueReport {
+  /** Whether a `merge_queue` rule applies, or null when the rules could
+   *  not be read. */
+  readonly present: boolean | null
+  readonly rule: MergeQueueRule | null
+  /** `queue` only when the rule applies and every required context maps
+   *  to a workflow with a `merge_group` trigger. */
+  readonly mode: 'queue' | 'serial'
+  readonly blocking: readonly QueueBlock[]
+  /** Why the queue, or the required checks, could not be read. */
+  readonly unavailable: string | null
+}
+
+/** A base with no merge queue. */
+export const NO_QUEUE: QueueReport = {
+  present: false,
+  rule: null,
+  mode: 'serial',
+  blocking: [],
+  unavailable: null,
+}
+
+/** One required context and the Actions run that reports it on a target
+ *  head, or the reason none does. */
+export type ContextRun =
+  | { readonly context: string; readonly run: string }
+  | { readonly context: string; readonly reason: string }
+
+/** The rollup rows of one pull request, or none. */
+const rollupOf = (pull: unknown): unknown[] => {
+  const raw = field(pull, 'statusCheckRollup')
+  return Array.isArray(raw) ? raw : []
+}
+
+/**
+ * The Actions run behind each required context, through the
+ * `/actions/runs/<run>/job/<job>` link of its row on a target head
+ * (ruling 6 on #503). A check name is not a workflow name. A matrix leg is
+ * named by its matrix value, so only the run can name the workflow file.
+ * The first row with such a link decides.
+ */
+export const contextRuns = (
+  contexts: readonly string[],
+  heads: readonly unknown[],
+): ContextRun[] => {
+  const rows = heads.flatMap(rollupOf)
+  return contexts.map((context) => {
+    const named = rows.filter((row) => checkName(row) === context)
+    const run = named.map((row) => jobLink(checkLink(row))?.run).find((id) => id !== undefined)
+    if (run !== undefined) return { context, run }
+    return { context, reason: named.length === 0 ? NO_HEAD_ROW : NOT_ACTIONS }
+  })
+}
+
+/** What a run or a file read that was not made counts as. */
+const NOT_READ = { path: null, text: null, unavailable: 'it was not read' }
+
+/**
+ * The queue decision for one base with a `merge_queue` rule (#503). Each
+ * required context must map to an Actions run whose workflow file, at the
+ * base, has a `merge_group` trigger. Each one that does not is a
+ * {@link QueueBlock}, and the mode is serial. A read that failed proves
+ * nothing, so it blocks too.
+ */
+export const queueReport = (
+  rule: MergeQueueRule,
+  sources: readonly ContextRun[],
+  paths: ReadonlyMap<string, GhResults['workflowRunPath']>,
+  files: ReadonlyMap<string, GhResults['fileText']>,
+): QueueReport => {
+  const blocking: QueueBlock[] = []
+  for (const source of sources) {
+    const block = (reason: string, workflow: string | null = null) =>
+      blocking.push({ context: source.context, reason, workflow })
+    if ('reason' in source) {
+      block(source.reason)
+      continue
+    }
+    const read = paths.get(source.run) ?? NOT_READ
+    if (read.path === null) {
+      block(notProven(`the workflow of run ${source.run}: ${read.unavailable}`))
+      continue
+    }
+    const file = files.get(read.path) ?? NOT_READ
+    if (file.text === null) block(notProven(`${read.path}: ${file.unavailable}`), read.path)
+    else if (!hasMergeGroupTrigger(file.text)) block(noMergeGroup(read.path), read.path)
+  }
+  return {
+    present: true,
+    rule,
+    mode: blocking.length === 0 ? 'queue' : 'serial',
+    blocking,
+    unavailable: null,
+  }
+}
+
+/**
+ * The merge queue of `base`, with the decision `shepherd-status` reports.
+ * `heads` are the rows of the target heads on that base. A base with no
+ * queue costs the one rules read, and no run or workflow read. A read that
+ * failed is serial. For the rules or the required checks, stderr says why.
+ * For a run or a workflow file, a `blocking` reason says why. An enqueue
+ * reads the queue again first (ruling 9 on #503).
+ */
+export const readQueue = async (
+  gh: GhClient,
+  base: string,
+  heads: readonly unknown[],
+  err: Output['err'],
+): Promise<QueueReport> => {
+  const answer = await gh.mergeQueue({ branch: base })
+  if (answer.unavailable !== null) {
+    err.write(`the merge queue of ${base} is unavailable: ${answer.unavailable}; mode is serial\n`)
+    return { ...NO_QUEUE, present: null, unavailable: answer.unavailable }
+  }
+  if (answer.queue === null) return NO_QUEUE
+  const required = await gh.requiredContexts({ branch: base })
+  if (required.unavailable !== null) {
+    err.write(
+      `the required checks of ${base} are unavailable: ${required.unavailable}; mode is serial\n`,
+    )
+    return {
+      ...NO_QUEUE,
+      present: true,
+      rule: answer.queue,
+      unavailable: `the required checks could not be read: ${required.unavailable}`,
+    }
+  }
+  const sources = contextRuns(required.contexts, heads)
+  const paths = new Map<string, GhResults['workflowRunPath']>()
+  for (const source of sources) {
+    if ('run' in source && !paths.has(source.run)) {
+      paths.set(source.run, await gh.workflowRunPath({ run: source.run }))
+    }
+  }
+  const files = new Map<string, GhResults['fileText']>()
+  for (const read of paths.values()) {
+    if (read.path !== null && !files.has(read.path)) {
+      files.set(read.path, await gh.fileText({ path: read.path, ref: base }))
+    }
+  }
+  return queueReport(answer.queue, sources, paths, files)
+}
+
+/** The base a target merges into: a stack's base, or a pull request's
+ *  `baseRefName`. `""` for a pull request with none. */
+export const targetBase = (target: PullSummary | StackTarget): string =>
+  'stack' in target ? target.base : asText(target.baseRefName)
+
+/**
+ * The rows of the target heads on each base the targets use: the row of
+ * each pull request target, and the row of each open layer of each stack
+ * target. A target with no base is no base to ask about.
+ */
+export const targetHeads = (
+  targets: readonly (PullSummary | StackTarget)[],
+  pulls: unknown,
+  stacks: readonly StackRead[],
+): Map<string, unknown[]> => {
+  const rows = new Map(autoMergeRows(pulls).map((row) => [Number(field(row, 'number')), row]))
+  const layers = new Map(stacks.map((read) => [read.stack.number, [...read.rows.values()]]))
+  const heads = new Map<string, unknown[]>()
+  for (const target of targets) {
+    const base = targetBase(target)
+    if (base === '') continue
+    const found =
+      'stack' in target ? (layers.get(target.stack) ?? []) : [rows.get(Number(target.number))]
+    heads.set(base, [...(heads.get(base) ?? []), ...found])
+  }
+  return heads
+}
+
+/**
+ * The changed files of one target, or null when they were not read. A
+ * stack target's files are those of each open layer, once each. One layer
+ * that could not be read costs the whole list, and stderr says why: a
+ * short list cannot prove that two targets share no file.
+ */
+export const readTargetFiles = async (
+  gh: GhClient,
+  target: PullSummary | StackTarget,
+  err: Output['err'],
+): Promise<string[] | null> => {
+  const numbers = 'stack' in target ? target.layers : [Number(target.number)]
+  const files = new Set<string>()
+  for (const pullRequest of numbers) {
+    const answer = await gh.pullRequestFiles({ pullRequest })
+    if (answer.files === null) {
+      err.write(
+        `the files of #${pullRequest} are unavailable: ${answer.unavailable}; files is null\n`,
+      )
+      return null
+    }
+    for (const file of answer.files) files.add(file)
+  }
+  return [...files]
+}
+
+/** One target's changed files, as {@link fileOverlaps} reads them. Null
+ *  files were not read. */
+export interface FileSet {
+  readonly id: string
+  readonly files: readonly string[] | null
+}
+
+/** Whether two file lists can share a file. A list that was not read can,
+ *  since nothing proves that it does not. */
+const overlaps = (left: readonly string[] | null, right: readonly string[] | null): boolean =>
+  left === null || right === null || left.some((file) => right.includes(file))
+
+/**
+ * For each target, the other targets that share a changed file with it
+ * (#503). Two targets that share a file go into the queue one at a time.
+ * A target whose files were not read shares with every other target.
+ */
+export const fileOverlaps = (
+  sets: readonly FileSet[],
+): { readonly id: string; readonly shares: readonly string[] }[] =>
+  sets.map((set) => ({
+    id: set.id,
+    shares: sets
+      .filter((other) => other.id !== set.id && overlaps(set.files, other.files))
+      .map((other) => other.id),
+  }))
+
+/** A target with its changed files: null when they were not read. */
+export type FilesTarget = (PullSummary | StackTarget) & { readonly files: readonly string[] | null }
+
+/** The status document with the merge queue of each base, and the files
+ *  of each target (#503). Every field of {@link StatusDocument} stays. */
+export interface QueueStatusDocument extends Omit<StatusDocument, 'targets'> {
+  readonly targets: readonly FilesTarget[]
+  /** One report per base the targets use, by base. */
+  readonly queue: Readonly<Record<string, QueueReport>>
+}
+
+/**
+ * `document` with `files` on the end of each target and `queue` on the end
+ * of the document. `files` is in the order of the targets. A field
+ * already there keeps its place, so the change adds and moves nothing.
+ */
+export const withQueue = (
+  document: StatusDocument,
+  queues: ReadonlyMap<string, QueueReport>,
+  files: readonly (readonly string[] | null)[],
+): QueueStatusDocument => ({
+  ...document,
+  targets: document.targets.map((target, index) => ({
+    ...target,
+    files: files[index] as readonly string[] | null,
+  })),
+  queue: Object.fromEntries(queues),
+})

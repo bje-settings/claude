@@ -23,14 +23,20 @@ import {
   isTruthy,
   oneLine,
   openLayers,
+  type QueueReport,
+  readQueue,
   readRequiredContexts,
   readReviewRules,
+  readTargetFiles,
   readUnresolvedThreads,
   type ShepherdContext,
   type ShepherdExit,
   type StackRead,
   statusDocument,
+  targetBase,
+  targetHeads,
   threadReads,
+  withQueue,
 } from '../shepherd.ts'
 
 /** How far back the CI-duration sample reaches. One push starts several
@@ -71,6 +77,20 @@ Prints one JSON document and changes nothing:
                    stack left out, as {stack, base, layers, failing}.
                    \`failing\` lists each layer that is not ready, as
                    {number, reasons}
+  queue            one entry per base the targets use, by base, as
+                   {present, rule, mode, blocking, unavailable}. \`present\`
+                   says whether a merge_queue rule applies (null when the
+                   rules could not be read), and \`rule\` gives its
+                   parameters. \`mode\` is "queue" only when every required
+                   check of the base comes from an Actions workflow whose
+                   file, at the base, has a merge_group trigger. Otherwise
+                   it is "serial", and \`blocking\` names each check that
+                   stops it, as {context, reason, workflow}. A reason is
+                   "has not reported on any target head", "is not reported
+                   by an Actions run", "workflow <path> has no merge_group
+                   trigger", or "could not be proven: <why>". \`unavailable\`
+                   says why the queue or the required checks could not be
+                   read. A base with no queue reads no workflow
 
 Each target carries \`approval\` (met, missing, not_required, or null) and
 \`threads\` (resolved, unresolved, not_required, or null). The pull_request
@@ -80,6 +100,10 @@ threads. A reviewDecision can require an approval too. A read that fails is
 null, and stderr names the branch or the pull request. It leaves nothing
 out. When the rules fail, approval rests on reviewDecision alone. When the
 threads fail, only threads is null.
+
+Each target also carries \`files\`, its changed files, on the end. A stack
+target's files are those of each open layer. \`files\` is null when the
+base is not in queue mode, or when a read failed; stderr then says why.
 
 Every open layer of a stack is judged by the rules of the stack base, not
 of its own base, as GitHub merges it. A layer is not ready when it "is a
@@ -347,9 +371,22 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
     all,
     stacks,
   })
+
+  // The merge queue of each base the targets use, then the changed files
+  // of each target whose base is in queue mode (#503). A base with no
+  // queue costs one rules read, and no file read.
+  const queues = new Map<string, QueueReport>()
+  for (const [base, heads] of targetHeads(document.targets, pulls, stacks)) {
+    queues.set(base, await readQueue(gh, base, heads, output.err))
+  }
+  const files: (string[] | null)[] = []
+  for (const target of document.targets) {
+    const queued = queues.get(targetBase(target))?.mode === 'queue'
+    files.push(queued ? await readTargetFiles(gh, target, output.err) : null)
+  }
   // `indent=2, ensure_ascii=False`: two spaces, and every character as
   // itself. This is what `JSON.stringify(value, null, 2)` writes.
-  output.out.write(`${JSON.stringify(document, null, 2)}\n`)
+  output.out.write(`${JSON.stringify(withQueue(document, queues, files), null, 2)}\n`)
   return 0
 }
 
