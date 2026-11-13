@@ -221,6 +221,7 @@ it('answers every endpoint it declares', async () => {
     enqueuePullRequest: {
       entry: { enqueuedAt: '2026-11-13T17:00:00Z', state: 'QUEUED', position: 1 },
       unavailable: null,
+      failure: null,
     },
   })
 

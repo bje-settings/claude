@@ -648,12 +648,19 @@ export interface GhResults {
   }
   /** Each time a merge queue removed one pull request, oldest first. */
   mergeQueueRemovals: PagedResult<MergeQueueRemoval>
-  /** The queue entry that an enqueue made, or null with GitHub's words. */
+  /** The queue entry that an enqueue made, or null with why. */
   enqueuePullRequest: {
     readonly entry: MergeQueueEntry | null
     readonly unavailable: string | null
+    /** Why `entry` is null, or null when it is not: `refused` (GitHub
+     *  answered with errors), `unsent` (no mutation was sent), or `unknown`
+     *  (the mutation was sent, and the reply does not say what it did). */
+    readonly failure: EnqueueFailure | null
   }
 }
+
+/** Why an enqueue gave no entry. See {@link GhResults.enqueuePullRequest}. */
+export type EnqueueFailure = 'refused' | 'unsent' | 'unknown'
 
 export type GhEndpoint = keyof GhResults
 
@@ -1062,10 +1069,13 @@ export interface GhClient {
    * mutation with `expectedHeadOid`, so GitHub refuses a head that moved.
    * It never sets `jump`. It can only add to a queue: it never merges.
    *
-   * Never throws, as {@link GhClient.mergeStack} does not. A refusal is a
-   * null `entry`, with GitHub's own words in `unavailable`. A reply with no
-   * entry and no error is a null `entry` too, with a reason. A reply with an
-   * entry and errors gives both: the entry is the answer.
+   * Never throws, as {@link GhClient.mergeStack} does not. A null `entry`
+   * has a reason in `unavailable` and a `failure`. `refused` is a reply with
+   * GitHub's errors and no entry. `unsent` is a node id that could not be
+   * read, so no mutation went out. `unknown` is a mutation that timed out,
+   * a reply that is not JSON, or a reply with no entry and no error: the
+   * write can have landed. A reply with an entry and errors gives both: the
+   * entry is the answer.
    */
   enqueuePullRequest(query: {
     readonly pullRequest: number
@@ -3854,13 +3864,16 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         ['-F', `number=${query.pullRequest}`],
         'pullRequest',
       )
-      if (found.data === null) return { entry: null, unavailable: found.unavailable }
+      if (found.data === null) {
+        return { entry: null, unavailable: found.unavailable, failure: 'unsent' }
+      }
       const id = asText(asRecord(found.data.pullRequest)?.id)
       if (id === null) {
         const said = `pull request ${query.pullRequest} gave no node id`
         return {
           entry: null,
           unavailable: found.unavailable === null ? said : `${said}: ${found.unavailable}`,
+          failure: 'unsent',
         }
       }
       const result = await invoke([
@@ -3873,12 +3886,13 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         '-f',
         `query=${ENQUEUE_MUTATION}`,
       ])
-      if (result.timedOut) return { entry: null, unavailable: accountOf(result, options.boundMs) }
+      const unknown = { entry: null, failure: 'unknown' } as const
+      if (result.timedOut) return { ...unknown, unavailable: accountOf(result, options.boundMs) }
       let reply: Record<string, unknown> | undefined
       try {
         reply = asRecord(JSON.parse(result.stdout))
       } catch {
-        return { entry: null, unavailable: accountOf(result, options.boundMs) }
+        return { ...unknown, unavailable: accountOf(result, options.boundMs) }
       }
       const errorsField = reply?.errors
       const messages = (Array.isArray(errorsField) ? errorsField : [])
@@ -3887,14 +3901,15 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       const written = asRecord(asRecord(reply?.data)?.enqueuePullRequest)?.mergeQueueEntry
       const entry = readMergeQueueEntry(written)
       if (entry === undefined) {
-        return {
-          entry: null,
-          unavailable:
-            joinedReasons(messages) ??
-            `GitHub gave no queue entry for pull request ${query.pullRequest}`,
-        }
+        const said = joinedReasons(messages)
+        return said === null
+          ? {
+              ...unknown,
+              unavailable: `GitHub gave no queue entry for pull request ${query.pullRequest}`,
+            }
+          : { entry: null, unavailable: said, failure: 'refused' }
       }
-      return { entry, unavailable: joinedReasons(messages) }
+      return { entry, unavailable: joinedReasons(messages), failure: null }
     },
   }
   return client

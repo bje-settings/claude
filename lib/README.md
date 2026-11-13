@@ -758,8 +758,9 @@ read that failed is null, with the reason in `unavailable`.
 ### `enqueuePullRequest`
 
 ```ts
-const { entry, unavailable } = await gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid })
-// entry -> { enqueuedAt, state: 'QUEUED', position: 2 }, or null with GitHub's words
+const { entry, unavailable, failure } = await gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid })
+// entry -> { enqueuedAt, state: 'QUEUED', position: 2 }, or null with why
+// failure -> null with an entry, else 'refused', 'unsent' or 'unknown'
 ```
 
 The one write of #503 (answer 2). It reads the node id of the pull request, then sends the
@@ -768,10 +769,16 @@ moved after the caller read it. The mutation never sets `jump`, so the entry goe
 the queue. It can only add to a queue. It never merges, so it is not `gh pr merge`, which merges
 at once when the queue rule goes away.
 
-It never throws, as `mergeStack` does not. A refusal is a null `entry`, with the `errors`
-messages of the reply in `unavailable`. A reply with no entry and no error is a null `entry` too.
-A reply with an entry and errors gives both. The entry is the answer.
-A node id that could not be read sends no mutation. `shepherd-pr enqueue` is the one caller.
+It never throws, as `mergeStack` does not. A null `entry` has a reason in `unavailable`, and
+`failure` says what the reason proves:
+
+- `refused`: the reply has GitHub's `errors` messages, and no entry.
+- `unsent`: the node id could not be read, so no mutation went out.
+- `unknown`: the mutation timed out, its reply is not JSON, or the reply has no entry and no
+  error. The write can have landed.
+
+A reply with an entry and errors gives both, with a null `failure`. The entry is the answer.
+`shepherd-pr enqueue` is the one caller.
 
 ## The TypeSafe transport and the Jev client
 

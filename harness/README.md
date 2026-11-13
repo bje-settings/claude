@@ -121,7 +121,7 @@ The merge queue reads of #503 never throw either. `mergeQueue` answers `{ queue,
 `{ files, unavailable }`, `mergeQueueEntry` `{ entry, unavailable }`, and `mergeQueueRemovals`
 `{ rows, unavailable }`. A null value with no reason is an answer for `mergeQueue` (no queue) and
 `mergeQueueEntry` (not in a queue). `enqueuePullRequest` is a write that never throws, as
-`mergeStack` is: it answers `{ entry, unavailable }`.
+`mergeStack` is: it answers `{ entry, unavailable, failure }`.
 
 `missing` is true only when GitHub itself said the number does not exist. It is false for every
 other reason the read came back short. A test that registers a reply must say which case it means.

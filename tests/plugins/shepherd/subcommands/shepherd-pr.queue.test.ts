@@ -42,7 +42,8 @@ const merged = (number: number, updatedAt = '2026-10-20T22:20:00Z'): PullRequest
 })
 
 /** The server, with a sequence for the two queue reads, which the server
- *  does not route. The last entry repeats, as a server sequence does. */
+ *  does not route. The last entry repeats, as a server sequence does. The
+ *  two reads answer pull request #1 only, so a read of another fails. */
 const queueGh = (
   options: GhServerOptions,
   entries: readonly (GhResults['mergeQueueEntry'] | Error)[] = [NO_ENTRY],
@@ -61,12 +62,16 @@ const queueGh = (
   const removalAt = { n: 0 }
   return {
     ...server,
-    mergeQueueEntry: async () => {
+    mergeQueueEntry: async ({ pullRequest }) => {
+      if (pullRequest !== 1) return { entry: null, unavailable: `no entry for #${pullRequest}` }
       const reply = take(entries, entryAt)
       if (reply instanceof Error) throw reply
       return reply
     },
-    mergeQueueRemovals: async () => take(removals, removalAt),
+    mergeQueueRemovals: async ({ pullRequest }) =>
+      pullRequest === 1
+        ? take(removals, removalAt)
+        : { rows: [], unavailable: `no removals for #${pullRequest}` },
   }
 }
 
@@ -341,6 +346,16 @@ describe('queue', () => {
     expect(result.document).toMatchObject({ result: 'queued' })
   })
 
+  it('reads a drop of this pass as removed, even with auto-merge on', async () => {
+    const drop = { reason: 'merge_conflict', createdAt: '2026-10-20T22:05:00Z' }
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', 'queue'],
+      gh: queueGh({ prs: [depPr(1)] }, [NO_ENTRY], [removed(drop)]),
+    }))
+
+    expect(result.document).toMatchObject({ result: 'removed' })
+  })
+
   it('reads an open pull request with auto-merge and no entry as waiting', async () => {
     const result = await drive((_sandbox, repo) => ({
       argv: [repo, '1', 'queue'],
@@ -571,6 +586,7 @@ describe('queue-wait', () => {
       queue_state: 'waiting',
       waited: 45,
       reads_ok: 3,
+      pr: { headRefOid: depPr(1).headRefOid, checks: { state: 'pending' } },
     })
   })
 
@@ -578,11 +594,18 @@ describe('queue-wait', () => {
     const result = await drive((sandbox, repo) => ({
       argv: [repo, '1', 'queue-wait'],
       env: queueEnv(sandbox.env),
-      gh: queueGh({
-        sequences: {
-          viewPullRequest: [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'failed' })],
+      gh: queueGh(
+        {
+          sequences: {
+            viewPullRequest: [
+              depPr(1, { checks: 'pending' }),
+              depPr(1, { checks: 'pending' }),
+              depPr(1, { checks: 'failed' }),
+            ],
+          },
         },
-      }),
+        [NO_ENTRY, { entry: null, unavailable: 'gh: HTTP 502' }, NO_ENTRY],
+      ),
     }))
 
     expect(result.document).toMatchObject({
@@ -590,6 +613,8 @@ describe('queue-wait', () => {
       detail: 'checks failed while the pull request waits to go in the queue',
       result: 'failed',
       reads_ok: 2,
+      read_failures: 1,
+      read_error: '',
     })
   })
 
@@ -643,6 +668,7 @@ describe('queue-wait', () => {
       reads_ok: 1,
       read_failures: 2,
       read_error: 'the queue entry could not be read: gh: HTTP 502',
+      pr: { number: 1 },
     })
   })
 
@@ -687,8 +713,12 @@ describe('enqueue', () => {
         // Only the right pull request and head get an entry.
         enqueuePullRequest: async (query) =>
           query.pullRequest === 1 && query.expectedHeadOid === HEAD
-            ? { entry: { ...ENTRY, state: 'QUEUED' }, unavailable: null }
-            : { entry: null, unavailable: `wrong query: ${JSON.stringify(query)}` },
+            ? { entry: { ...ENTRY, state: 'QUEUED' }, unavailable: null, failure: null }
+            : {
+                entry: null,
+                unavailable: `wrong query: ${JSON.stringify(query)}`,
+                failure: 'refused',
+              },
       },
     }))
 
@@ -715,59 +745,89 @@ describe('enqueue', () => {
           branch === 'release/1'
             ? { queue: QUEUE_RULE, unavailable: null }
             : { queue: null, unavailable: null },
-        enqueuePullRequest: async () => ({ entry: ENTRY, unavailable: null }),
+        enqueuePullRequest: async () => ({ entry: ENTRY, unavailable: null, failure: null }),
       },
     }))
 
     expect(result.document).toMatchObject({ ok: true, result: 'enqueued' })
   })
 
-  it('answers queued when a write gave no entry but the entry is there after it', async () => {
+  /** A server whose write gives no entry, with `failure`, and whose entry
+   *  reads give `entries` in turn. */
+  const writing = (
+    failure: 'refused' | 'unsent' | 'unknown',
+    unavailable: string,
+    entries: readonly GhResults['mergeQueueEntry'][],
+  ): GhClient =>
+    queueGh(
+      {
+        prs: [OPEN()],
+        replies: {
+          mergeQueue: QUEUE,
+          listOpenStacks: { rows: [], unavailable: null },
+          enqueuePullRequest: { entry: null, unavailable, failure },
+        },
+      },
+      entries,
+    )
+
+  it.each([
+    ['an entry', queued()],
+    ['an entry beside an error', { entry: ENTRY, unavailable: 'slow' }],
+  ] as const)(
+    'answers queued when a write said nothing and the read after it gives %s',
+    async (_what, after) => {
+      const result = await drive((_sandbox, repo) => ({
+        argv: [repo, '1', 'enqueue', HEAD],
+        gh: writing('unknown', 'gh did not answer in 60000 ms', [NO_ENTRY, after]),
+      }))
+
+      expect(result.document).toMatchObject({
+        ok: true,
+        detail: 'in the queue after the enqueue: AWAITING_CHECKS',
+        result: 'queued',
+        entry: ENTRY,
+      })
+    },
+  )
+
+  it.each([
+    [
+      'cannot be read again',
+      { entry: null, unavailable: 'gh: HTTP 502' },
+      'the entry could not be read again: gh: HTTP 502',
+    ],
+    ['is not there', NO_ENTRY, 'no entry is there'],
+  ] as const)(
+    'answers unconfirmed when a write said nothing and the entry %s',
+    async (_what, after, seen) => {
+      const result = await drive((_sandbox, repo) => ({
+        argv: [repo, '1', 'enqueue', HEAD],
+        gh: writing('unknown', 'gh did not answer in 60000 ms', [NO_ENTRY, after]),
+      }))
+
+      expect(result.status).toBe(0)
+      expect(result.document).toMatchObject({
+        ok: false,
+        result: 'unconfirmed',
+        detail:
+          'unconfirmed: the enqueue did not say what it did (gh did not answer in 60000 ms), ' +
+          `and ${seen}; the write can have landed`,
+      })
+    },
+  )
+
+  it('refuses as unread a write that sent nothing, with no read after it', async () => {
+    // A read after it would answer queued.
     const result = await drive((_sandbox, repo) => ({
       argv: [repo, '1', 'enqueue', HEAD],
-      gh: queueGh(
-        {
-          prs: [OPEN()],
-          replies: {
-            mergeQueue: QUEUE,
-            listOpenStacks: { rows: [], unavailable: null },
-            enqueuePullRequest: { entry: null, unavailable: 'gh timed out after 60s' },
-          },
-        },
-        [NO_ENTRY, queued()],
-      ),
-    }))
-
-    expect(result.document).toMatchObject({
-      ok: true,
-      detail: 'in the queue after the enqueue: AWAITING_CHECKS',
-      result: 'queued',
-      entry: ENTRY,
-    })
-  })
-
-  it('answers unconfirmed when a write gave no entry and the entry cannot be read again', async () => {
-    const result = await drive((_sandbox, repo) => ({
-      argv: [repo, '1', 'enqueue', HEAD],
-      gh: queueGh(
-        {
-          prs: [OPEN()],
-          replies: {
-            mergeQueue: QUEUE,
-            listOpenStacks: { rows: [], unavailable: null },
-            enqueuePullRequest: { entry: null, unavailable: 'gh timed out after 60s' },
-          },
-        },
-        [NO_ENTRY, { entry: null, unavailable: 'gh: HTTP 502' }],
-      ),
+      gh: writing('unsent', 'gh: HTTP 502', [NO_ENTRY, queued()]),
     }))
 
     expect(result.document).toMatchObject({
       ok: false,
-      result: 'unconfirmed',
-      detail:
-        'refused: the enqueue gave no entry (gh timed out after 60s), and the entry could not ' +
-        'be read again: gh: HTTP 502',
+      result: 'unread',
+      detail: 'refused: nothing was sent: gh: HTTP 502',
     })
   })
 
@@ -787,17 +847,11 @@ describe('enqueue', () => {
     expect(result.document).toMatchObject({ ok: false, result: 'head_moved' })
   })
 
-  it("gives GitHub's own words when it refuses the enqueue", async () => {
+  it("gives GitHub's own words when it refuses the enqueue, with no read after it", async () => {
+    // A read after it would answer queued.
     const result = await drive((_sandbox, repo) => ({
       argv: [repo, '1', 'enqueue', HEAD],
-      gh: queueGh({
-        prs: [OPEN()],
-        replies: {
-          mergeQueue: QUEUE,
-          listOpenStacks: { rows: [], unavailable: null },
-          enqueuePullRequest: { entry: null, unavailable: 'Pull request is not mergeable' },
-        },
-      }),
+      gh: writing('refused', 'Pull request is not mergeable', [NO_ENTRY, queued()]),
     }))
 
     expect(result.document).toMatchObject({

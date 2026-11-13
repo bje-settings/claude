@@ -440,9 +440,9 @@ cannot make it act on the wrong pull request.
             after <since>, as {reason, class, createdAt}, or null. \`class\`
             is merge_conflict, stack_invalidated, invalid_merge_commit, or
             other for any other reason, null included. The detail quotes an
-            other reason. <since> is an ISO time: pass the enqueuedAt of the
-            last report, or the time you began to follow the pull request,
-            so that a removal of an earlier pass is not read as this one.
+            other reason. <since> is an ISO time: pass the enqueuedAt of an
+            enqueue report, or a time read just before this pass began, so
+            that a removal of an earlier pass is not read as this one.
             With no <since>, every removal counts. \`enqueued_at\`,
             \`left_at\` and \`queue_seconds\` give the time in the queue:
             from the entry's enqueuedAt (or <since> when no read saw the
@@ -466,12 +466,13 @@ cannot make it act on the wrong pull request.
             only with gh stack merge, through shepherd-stack merge),
             \`head_moved\` (the head is not <head>), or \`unread\` (a read
             failed, so nothing was proven). An entry already there is
-            \`queued\`, with no write. Then \`enqueued\` with \`entry\`. When
-            the write gives no entry, it reads the entry once more: an
-            entry is \`queued\`, a failed read is \`unconfirmed\` (the write
-            can have landed), and else it is \`refused\` with GitHub's own
-            words in \`reason\`. It can only add
-            to a queue. It never merges.
+            \`queued\`, with no write. Then \`enqueued\` with \`entry\`, or
+            \`refused\` with GitHub's own words in \`reason\`. A write that
+            does not say what it did (a timeout, a reply with no entry and
+            no error) is followed by one more read of the entry: an entry
+            is \`queued\`, and else \`unconfirmed\` (ok:false, the write can
+            have landed: read queue-wait, and do not enqueue again). It can
+            only add to a queue. It never merges.
 
 The queue check of shepherd-status reads required status checks only. A
 required workflow of a ruleset is not read (#514), so a base whose required
@@ -1537,17 +1538,23 @@ export class Shepherd {
   /**
    * Add this pull request to the queue of its base (ruling 9 on #503). It
    * refuses first, with no write: a base with no queue, a pull request
-   * that is not open, a layer of a stack, and a head that is not
-   * `expected`. A pull request already in the queue is answered, with no
-   * write. Then it calls the one write.
+   * that is not open, a layer of a stack, a head that is not `expected`,
+   * and a read that failed. A pull request already in the queue is
+   * answered, with no write. Then it calls the one write. GitHub's errors
+   * are `refused`. A write that does not say what it did is followed by
+   * one more read of the entry: an entry is `queued`, and else it is
+   * `unconfirmed`, because the write can have landed.
    */
   async enqueue(expected: string): Promise<void> {
     const pull = await this.readPr()
     if (pull === null) return this.unreadable()
     const gh = this.options.gh
     const base = String(pull.baseRefName)
-    const refuse = (result: string, detail: string, extra: Record<string, unknown> = {}) =>
-      this.emit(false, `refused: ${detail}`, { result, ...extra, pr: pull })
+    const refuse = (
+      result: EnqueueRefusal,
+      detail: string,
+      extra: Record<string, unknown> = {},
+    ): void => this.emit(false, `refused: ${detail}`, { result, ...extra, pr: pull })
     const queue = await gh.mergeQueue({ branch: base })
     if (queue.unavailable !== null) {
       return refuse('unread', `the merge queue of ${base} could not be read: ${queue.unavailable}`)
@@ -1591,8 +1598,19 @@ export class Shepherd {
       expectedHeadOid: expected,
     })
     if (written.entry === null) {
-      // A write that timed out, or a reply with no entry, can still have
-      // put the pull request in the queue. Read the entry once more.
+      if (written.failure === 'unsent') {
+        return refuse('unread', `nothing was sent: ${written.unavailable}`)
+      }
+      if (written.failure === 'refused') {
+        this.emit(false, `GitHub refused the enqueue: ${written.unavailable}`, {
+          result: 'refused',
+          reason: written.unavailable,
+          pr: pull,
+        })
+        return
+      }
+      // A write that timed out, or a reply that does not say what it did,
+      // can still have put the pull request in the queue. Read once more.
       const after = await gh.mergeQueueEntry({ pullRequest: this.options.number })
       if (after.entry !== null) {
         this.emit(true, `in the queue after the enqueue: ${after.entry.state}`, {
@@ -1602,18 +1620,16 @@ export class Shepherd {
         })
         return
       }
-      if (after.unavailable !== null) {
-        return refuse(
-          'unconfirmed',
-          `the enqueue gave no entry (${written.unavailable}), and the entry could not be ` +
-            `read again: ${after.unavailable}`,
-        )
-      }
-      this.emit(false, `GitHub refused the enqueue: ${written.unavailable}`, {
-        result: 'refused',
-        reason: written.unavailable,
-        pr: pull,
-      })
+      const seen =
+        after.unavailable === null
+          ? 'no entry is there'
+          : `the entry could not be read again: ${after.unavailable}`
+      this.emit(
+        false,
+        `unconfirmed: the enqueue did not say what it did (${written.unavailable}), and ` +
+          `${seen}; the write can have landed`,
+        { result: 'unconfirmed', pr: pull },
+      )
       return
     }
     this.emit(true, `enqueued: ${written.entry.state}`, {
@@ -1623,6 +1639,9 @@ export class Shepherd {
     })
   }
 }
+
+/** What `enqueue` refuses before any write. */
+type EnqueueRefusal = 'unread' | 'no_queue' | 'not_open' | 'stacked' | 'head_moved'
 
 /** Whether the checks of a pull request that waits for the queue failed. */
 const checksFailed = (facts: QueueFacts): boolean =>

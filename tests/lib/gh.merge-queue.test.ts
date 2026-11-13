@@ -583,6 +583,7 @@ describe('enqueuePullRequest', () => {
       const right =
         pair(args, '-f', 'id=PR_kwDO') &&
         pair(args, '-f', `head=${head}`) &&
+        query.includes('mutation($id: ID!, $head: GitObjectID!)') &&
         query.includes(
           'enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head })',
         ) &&
@@ -592,7 +593,7 @@ describe('enqueuePullRequest', () => {
 
     await expect(
       createGhClient({ run }).enqueuePullRequest({ pullRequest: 512, expectedHeadOid: head }),
-    ).resolves.toEqual({ entry: ENTRY, unavailable: null })
+    ).resolves.toEqual({ entry: ENTRY, unavailable: null, failure: null })
   })
 
   it("gives GitHub's own words when it refuses the enqueue", async () => {
@@ -607,7 +608,11 @@ describe('enqueuePullRequest', () => {
 
     await expect(
       gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
-    ).resolves.toEqual({ entry: null, unavailable: 'Head sha did not match' })
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'Head sha did not match',
+      failure: 'refused',
+    })
   })
 
   it('names a reply with no entry and no error as no entry', async () => {
@@ -618,6 +623,7 @@ describe('enqueuePullRequest', () => {
     ).resolves.toEqual({
       entry: null,
       unavailable: 'GitHub gave no queue entry for pull request 512',
+      failure: 'unknown',
     })
   })
 
@@ -629,6 +635,7 @@ describe('enqueuePullRequest', () => {
     ).resolves.toEqual({
       entry: null,
       unavailable: 'GitHub gave no queue entry for pull request 512',
+      failure: 'unknown',
     })
   })
 
@@ -637,7 +644,7 @@ describe('enqueuePullRequest', () => {
 
     await expect(
       gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
-    ).resolves.toEqual({ entry: ENTRY, unavailable: 'slow' })
+    ).resolves.toEqual({ entry: ENTRY, unavailable: 'slow', failure: null })
   })
 
   it('reads errors that are not a list as no message', async () => {
@@ -648,6 +655,7 @@ describe('enqueuePullRequest', () => {
     ).resolves.toEqual({
       entry: null,
       unavailable: 'GitHub gave no queue entry for pull request 512',
+      failure: 'unknown',
     })
   })
 
@@ -659,6 +667,7 @@ describe('enqueuePullRequest', () => {
     ).resolves.toEqual({
       entry: null,
       unavailable: 'GitHub gave no queue entry for pull request 512',
+      failure: 'unknown',
     })
   })
 
@@ -667,7 +676,7 @@ describe('enqueuePullRequest', () => {
 
     await expect(
       gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
-    ).resolves.toEqual({ entry: null, unavailable: 'gh: HTTP 502' })
+    ).resolves.toEqual({ entry: null, unavailable: 'gh: HTTP 502', failure: 'unknown' })
   })
 
   it('names the bound when the mutation timed out, whatever it printed', async () => {
@@ -679,7 +688,11 @@ describe('enqueuePullRequest', () => {
 
     await expect(
       gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
-    ).resolves.toEqual({ entry: null, unavailable: 'gh did not answer in 9 ms' })
+    ).resolves.toEqual({
+      entry: null,
+      unavailable: 'gh did not answer in 9 ms',
+      failure: 'unknown',
+    })
   })
 
   it('writes nothing when the node id could not be read', async () => {
@@ -688,7 +701,7 @@ describe('enqueuePullRequest', () => {
 
     await expect(
       gh.enqueuePullRequest({ pullRequest: 512, expectedHeadOid: HEAD }),
-    ).resolves.toEqual({ entry: null, unavailable: 'gh: HTTP 502' })
+    ).resolves.toEqual({ entry: null, unavailable: 'gh: HTTP 502', failure: 'unsent' })
   })
 
   it('writes nothing for a pull request with no node id, and keeps the error beside it', async () => {
@@ -702,6 +715,7 @@ describe('enqueuePullRequest', () => {
       {
         entry: null,
         unavailable: 'pull request 9 gave no node id: gone',
+        failure: 'unsent',
       },
     )
   })
@@ -713,6 +727,7 @@ describe('enqueuePullRequest', () => {
       {
         entry: null,
         unavailable: 'pull request 9 gave no node id',
+        failure: 'unsent',
       },
     )
   })
