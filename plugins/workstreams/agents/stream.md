@@ -17,6 +17,6 @@ section.
 The guard hook catches three of the brief's rules for you, and for no other agent. It
 refuses a background command. It also refuses a `git checkout`, `git switch`, or
 `git restore` that would overwrite uncommitted work in a tracked file. It also refuses a
-`vitest` or `pnpm test` run while one already runs in the same worktree; wait for the named
-pid to finish, and never re-issue it. A denial is the rule, not a fault. It cannot make you
-commit before you mutate anything.
+`vitest` or `pnpm test` run while one already runs in the same worktree. Then wait for the
+named pid to finish, and never re-issue it. A denial is the rule, not a fault. It cannot
+make you commit before you mutate anything.

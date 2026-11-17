@@ -20,8 +20,8 @@ watching you.
   it. `git rev-parse --show-toplevel` prints its path. Call that path `<worktree>`, and
   name it by absolute path in every command. Never `cd` (rule 12 names the two
   exceptions).
-- You cannot write to, or run git in, the root checkout or another worktree. Claude Code
-  refuses it. The caller checks the root checkout.
+- You cannot write to the root checkout or another worktree, or run git in the root
+  checkout. Claude Code refuses it. The caller checks the root checkout.
 - Your base: `<lower branch>` at `<sha>`.
 - Keep your notes in your return. A file is optional, never required.
 
@@ -30,14 +30,17 @@ watching you.
 
 1. `git -C <worktree> fetch origin`. `<For an upper layer, add: then, for each lower layer
    branch, bottom first, git -C <worktree> fetch origin <branch>:<branch>. That brings the
-   local branch up to its remote head, and refuses a move that is not a fast-forward.>`
-2. `git -C <worktree> switch -c <your branch> origin/<lower branch>`.
+   local branch up to its remote head. git refuses a move that is not a fast-forward, and a
+   branch that another worktree holds.>` A refusal is a stop: return it, with git's text.
+2. `<For an upper layer, add: git -C <worktree> rev-parse origin/<lower branch> prints
+   <sha>. If not, stop and return.>` Then
+   `git -C <worktree> switch -c <your branch> origin/<lower branch>`.
 3. `<the package manager's install, and uv sync --locked if there is a uv.lock>`, in
    `<worktree>`. `<Say so when the repository installs git hooks: an install can write into
    the clone's shared .git/hooks and leave a file behind when a later revision stops
    configuring it.>`
-4. `(cd <worktree> && gh stack init <each layer branch from the bottom, up to and
-   including your branch>)`. `gh stack` keeps its record for each worktree. So a new
+4. `(cd <worktree> && gh stack init <each layer branch from the bottom, up to your branch,
+   with it>)`. `gh stack` keeps its record for each worktree. So a new
    worktree adopts the whole chain before its first stack command.
 5. `git -C <worktree> rev-parse --abbrev-ref HEAD` prints `<your branch>`.
 

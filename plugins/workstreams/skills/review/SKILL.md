@@ -59,11 +59,10 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
 ## Process
 
 0. Called with a round agent's JSON return: check its `substantial` against
-   `git -C <worktree> diff <from> <head>`, where `<worktree>` is the round agent's worktree
-   that its completion notification names. A round with no commits keeps no worktree: then
-   use any worktree from `git worktree list`. The diff decides the description. Record that
-   round's status with `mark` and its `head`, and name any disagreement. A `mark` that
-   failed is a stop: say so, post no comment, and settle no thread. Then post the round
+   `git -C <worktree> diff <from> <head>`. `<worktree>` is any path from
+   `git worktree list`: all worktrees share one object store. The diff decides the
+   description. Record that round's status with `mark` and its `head`, and name any
+   disagreement. A `mark` that failed is a stop: say so, post no comment, and settle no thread. Then post the round
    comment. A comment that did not post is no stop: the status is the state. Name it in the
    return. Then settle each entry of the return's `bot_threads`. Reply `Fixed in <commit>.`,
    or `Not changed: <reason>.` when `commit` is `null`. Then resolve the thread, and return.
@@ -114,8 +113,9 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    [round-brief.md](round-brief.md), the round agent's whole instruction, and add
    [round-2.md](round-2.md) verbatim for round 2. Round 2's brief carries round 1's
    findings and rejected list, from the round 1 return that the caller passes. Fill in
-   every placeholder the template names; a brief with a placeholder left in it is a round
-   that will guess.
+   every placeholder the template names, except `<worktree>`; a brief with a placeholder
+   left in it is a round that will guess. The install comes from the lock file, by the
+   rule of [the stream skill](../stream/SKILL.md) step 1.
 
    Reviewers by what the diff changes, from `gh pr diff <n> --name-only`:
 

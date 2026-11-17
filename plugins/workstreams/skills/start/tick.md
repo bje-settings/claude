@@ -66,7 +66,7 @@ To rebase one stream onto the other, in a gap (no agent writes to either stream)
 | `closed` | Closed with no merge. Report it, never a review. Read the `Mid-round ruling` comments on the layer's issues: `gh issue view <number> --json comments`. One about this layer is the answer: do not ask again. With no answer, ask one [question](#a-decision-mid-round), once: drop this layer and each layer above it from the round, reopen it, or replan. Record the answer on each of the layer's issues. Drop: the round can end, and the round end lists the dropped layers. Reopen: the person reopens it, and its state acts on the next wake. Replan: stop. |
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
 | `review-1`, `review-2`, `rot-check` | Nothing while an agent works on this pull request, the layer agent or a round agent. At `review-1` with `layerReturned: false`, dispatch no round, also in a new conversation: no layer agent's return was read. `/workstreams:stream` marks each return it reads. One exception is a pull request that no layer of the plan builds, such as a person's pull request. When this conversation dispatched no layer agent for it, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> layer` first. A `mark` that failed is a stop. For `pr <n>`, which has no plan, the question of `SKILL.md` Order step 2 decides, asked once. In any other case, report the pull request and its head once for each head. A status write wakes no watch. Tell the person that a lost return holds round 1, and that `mark <number> layer` releases it. CI can still run, or be red: the round reads it. Otherwise, [detach](#detach) the kept worktree that holds this layer's branch, because the round agent takes the branch in a worktree of its own. Then invoke `/workstreams:review` with the number. For `review-2`, also give it round 1's return. |
-| `fixing` | Nothing while a round agent works on this pull request: its return is the next wake. A person who resolves a thread is a wake too. With no agent at work and a `red` `verdict`, the agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise resume it with `SendMessage`. A pull request from a person, with no agent: report it, and stop. With a `pending` `verdict`, the watch names each check as it reports. With no agent at work, a `green` `verdict` and `botThreads` above 0, invoke `/workstreams:review` once for this head. It settles each mermaid preview thread, and names each other bot thread for the person. A second such wake on the same head is a stop. |
+| `fixing` | Nothing while a round agent works on this pull request: its return is the next wake. A person who resolves a thread is a wake too. With no agent at work and a `red` `verdict`, the agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise resume it with `SendMessage`, by the rule for a resumed agent in [Detach](#detach). A pull request from a person, with no agent: report it, and stop. With a `pending` `verdict`, the watch names each check as it reports. With no agent at work, a `green` `verdict` and `botThreads` above 0, invoke `/workstreams:review` once for this head. It settles each mermaid preview thread, and names each other bot thread for the person. A second such wake on the same head is a stop. |
 | `done` | This layer is finished. Step 3 of `SKILL.md` writes the next layer. |
 
 Ten wakes on one state, with no agent at work on that pull request, is a stop. A watch
@@ -114,8 +114,13 @@ kept worktree that holds a branch to free:
 git -C <worktree> switch --detach
 ```
 
-Detach only when no agent works in it and its `clean` is `true`. A dirty one
-is a stop: name it.
+Detach only an agent's worktree, under `.claude/worktrees/agent-`, when no agent works in
+it and its `clean` is `true`. A dirty one is a stop: name it. Any other worktree that holds
+the branch, such as a person's, is a stop too.
+
+A resumed agent whose worktree is now detached takes its branch back before it commits.
+Detach any other worktree that holds the branch. Then tell the agent to run
+`git -C <worktree> switch <its branch>` first.
 
 ## A decision mid-round
 

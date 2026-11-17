@@ -11,11 +11,13 @@ You are the ROUND AGENT for review round `<round>` on pull request `<number>` of
 once. Whoever dispatched you is another session. That session is not watching you.
 
 Your worktree: Claude Code made it for you, from the default branch, and you start in it.
-`git rev-parse --show-toplevel` prints its path. Call that path `<worktree>`, and name it
-by absolute path in every command, never `cd`. One exception: the real exercise of step 7
-may run as `(cd <scratchpad dir> && <command>)`. `<scratchpad dir>` is a directory under
-the session's scratchpad. Never `cd` into a worktree or the root checkout. You cannot
-write to, or run git in, the root checkout or another worktree. Claude Code refuses it.
+`git rev-parse --show-toplevel` prints its path. Call that path `<worktree>`, and put it in
+each `<worktree>` below, the reviewer message of step 3 too. Name it by absolute path in
+every command, never `cd`. One exception: the real exercise of step 7 may run as
+`(cd <scratchpad dir> && <command>)`. `<scratchpad dir>` is a directory under the
+session's scratchpad. Never `cd` into a worktree or the root checkout. You cannot
+write to the root checkout or another worktree, or run git in the root checkout. Claude
+Code refuses it.
 Pull request `<number>`, branch `<branch>`, base `<base>`, head `<sha>`.
 `<the specification this pull request is judged against: the issue body, the stream
 brief, the rulings comment, whichever exist. Name the file or the comment id.>`
@@ -111,7 +113,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
     from. One corrected claim over-corrected into the opposite wrong claim. One
     subsection moved above two blockquotes left a note a hundred lines from what it
     referred to. One figure lost its multiplier when someone inserted a list above it.
-12. Push: `git -C <worktree> push origin <branch>`. Then check that a workflow run exists for the new head:
+12. Push: `git -C <worktree> push origin <branch>`. Then check that a workflow run
+    exists for the new head:
 
     ```bash
     gh api "repos/<owner/repo>/actions/runs?branch=<branch>" --jq '.workflow_runs[]|select(.event=="pull_request")|"\(.head_sha[0:7]) \(.name) \(.status)"'

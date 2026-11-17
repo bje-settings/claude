@@ -124,9 +124,10 @@ Derive it on each call. Write nothing to disk.
 3. Invoke `/workstreams:stream` with the next layer's issues only when there is no layer
    below, or `pr-state` for the layer below gives `done` or `merged`. Any other state runs
    its row in [tick.md](tick.md) step 4. For a layer below that is `closed`, that row asks
-   one question. First detach each kept worktree that holds a branch of the stack
-   ([tick.md](tick.md), "Detach"): the new layer agent brings each lower branch up to its
-   remote head.
+   one question.
+
+   Before you invoke it, [detach](tick.md#detach) each kept worktree that holds a branch
+   of the stack. The new layer agent brings each lower branch up to its remote head.
 
    GitHub is the state of review: only `pr-state` marks a layer done. A person's message
    in chat never changes the state, and never takes the place of a review round. The one
