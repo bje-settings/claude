@@ -119,9 +119,9 @@ one step for each call and never wait. Only `start` waits.
 
 Each layer agent and each review round agent works in a worktree of its own (#263). A
 branch can be checked out in one worktree only. So `start` runs `git switch --detach` in
-each clean kept worktree that holds a branch, before a review round takes that branch,
-before the next layer, and before a stack rebase. A dirty kept worktree is a stop. The round
-end lists each `agent-*` worktree and `worktree-agent-*` branch for removal.
+each clean kept worktree that holds a branch. It does this before a review round takes that
+branch, before the next layer, and before a stack rebase. A dirty kept worktree is a stop.
+The round end lists each `agent-*` worktree and `worktree-agent-*` branch for removal.
 
 The round end starts when every layer is `done`, merged or dropped, and no layer is left.
 It is in `skills/start/round-end.md`. The report comes before any question. It has six
@@ -271,12 +271,12 @@ Builds one issue, or one stack of them.
 
 One stream is one branch and one agent per layer, in sequence. Each layer agent works in a
 worktree of its own, which Claude Code makes from the default branch. The agent fetches each
-lower branch, runs `git switch -c <layer> origin/<lower>`, installs, and adopts the whole
-chain with `gh stack init`, because `gh stack` keeps its record for each worktree. It cannot
-write to the root checkout, so the caller checks the root. The lower layer is reviewed to `done` before the team writes the next layer. A review fix on
-the lower branch rewrites every branch above it, so nothing may write there at that
-moment. The upper layer is then written once, against the names the lower layer's review
-settled.
+lower branch, and runs `git switch -c <layer> origin/<lower>`. Then it installs, and adopts
+the whole chain with `gh stack init`: `gh stack` keeps its record for each worktree. It
+cannot write to the root checkout, so the caller checks the root. The lower layer is
+reviewed to `done` before the team writes the next layer. A review fix on the lower branch
+rewrites every branch above it, so nothing may write there at that moment. The upper layer
+is then written once, against the names the lower layer's review settled.
 
 The brief is a file, not a prompt. `skills/stream/brief.md` is the template. It holds:
 
@@ -414,10 +414,14 @@ cannot check a relative directory. It allows the command and writes a line on st
 (`.claude/rules/_design-principles.md`, Mechanisms). So the guard binds a call only when the
 input has an `agent_id` and an `agent_type` of `workstreams:stream` or `workstreams:round`
 ([hooks](https://code.claude.com/docs/en/hooks#common-input-fields)). A plugin agent
-reports its plugin-scoped name. Every other call is allowed in silence: the main
-conversation, a session started with `--agent`, which has an `agent_type` and no
-`agent_id`, and each agent of another plugin or of Claude Code, such as `general-purpose`
-or `gh:shepherd-prs`. The reviewers that a round agent dispatches are not this plugin's
+reports its plugin-scoped name. The guard allows each other call in silence:
+
+- the main conversation;
+- a session started with `--agent`, which has an `agent_type` and no `agent_id`;
+- each agent of another plugin or of Claude Code, such as `general-purpose` or
+  `shepherd:shepherd-prs`.
+
+The reviewers that a round agent dispatches are not this plugin's
 agents, so the guard does not bind them. Their rules are in the round brief. The refusal
 names `agent_type`, so a reader knows which worker was stopped.
 

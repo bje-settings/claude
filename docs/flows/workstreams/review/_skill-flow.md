@@ -15,7 +15,7 @@ act. Each call takes one step and returns. The caller waits between calls.
 ```mermaid
 flowchart TD
     R0{called with a round agent's JSON return?}
-    R0 -->|Yes| RS[Check substantial against the round's own diff,<br/>in the round agent's worktree: only changed logic<br/>under src, lib, scripts or hooks counts; the diff decides]
+    R0 -->|Yes| RS[Check substantial against the round's own diff,<br/>in any worktree of the repository: only changed logic<br/>under src, lib, scripts or hooks counts; the diff decides]
     RS --> R2{record the round's status on the round's head<br/>with mark: written?}
     R2 -->|Yes| CM[Post the round comment for people:<br/>summary, then findings in a collapsed block;<br/>a failed post is reported, not a stop]
     CM --> BT{reply on each bot thread the round settled,<br/>then resolve it: each call worked?}
@@ -49,11 +49,11 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-The round agent takes the branch in its own worktree, made from the default branch, and
-pushes from there. The round brief holds the rules inside the round agent. Reviewers are read-only, and finish
-before any edit. The findings list comes before any edit, and goes in the return. Each
-finding and each rejection is cited. A claim that something is tested is mutated first.
-Round 2 checks round 1's commits before anything else. The round agent does not end its
+Claude Code makes the round agent a worktree of its own from the default branch. The agent
+takes the branch there, and pushes from there. The round brief holds the rules inside the
+round agent. Reviewers are read-only, and finish before any edit. The findings list comes
+before any edit, and goes in the return. Each finding and each rejection is cited. A claim
+that something is tested is mutated first. Round 2 checks round 1's commits before anything else. The round agent does not end its
 turn, or return, while a reviewer it dispatched still runs. Then it reads CI and the unresolved
 threads once, and fixes them with the findings in one pass. Each bot thread is a finding too. A
 mermaid preview thread is rejected as informational. The return lists each bot thread in

@@ -143,10 +143,12 @@ A layer's return goes to `/workstreams:stream` to read. A round agent's return g
 `/workstreams:review`, which records the round's status with `mark`. A `lower_layer` finding goes into its layer only in a gap. In a gap, no agent writes to that
 layer or above it. Otherwise the finding waits for the round-end report.
 
-Each agent works in a worktree of its own. A branch can be checked out in one worktree only,
-so `start` detaches each kept worktree that holds a branch before an agent needs it: before a
-review round, before the next layer, and before a stack rebase. A dirty kept worktree is a
-stop. The round end lists each `agent-*` worktree and `worktree-agent-*` branch for removal.
+Each agent works in a worktree of its own. A branch can be checked out in one worktree only.
+So `start` detaches each agent's kept worktree that holds a branch before another agent needs
+it. It does this before a review round, before the next layer, and before a stack rebase. A
+dirty kept worktree is a stop, and so is a holder that is no agent's. A resumed agent takes
+its branch back first. The round end lists each `agent-*` worktree and `worktree-agent-*`
+branch for removal.
 
 A layer agent returns after its push and the run check, with CI still able to run. `pr-state`
 gives `review-1` while CI runs. `/workstreams:stream` marks the return with a `layer` status,
