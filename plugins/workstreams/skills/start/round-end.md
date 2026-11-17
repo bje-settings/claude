@@ -76,9 +76,10 @@ After the report message, ask one `AskUserQuestion` with one question,
 alone. Give one option for each of parts 2 to 5 that has an item. The label names the
 part and its actions. Examples: `Open the 4 new issues`,
 `Comment on #14 and #22; set #28 blocked by #17`. The description lists each item in
-full, as in the report, and says who does each action. The part 2 description names each decision and how to reverse it, not only a
-count. Do not give an option for each item. When only one part has items, ask yes or no
-for that part, with its items in full in the question. When no part has items, do not ask.
+full, as in the report, and says who does each action. The part 2 description names each
+decision and how to reverse it, not only a count. Do not give an option for each item.
+When only one part has items, ask yes or no for that part, with its items in full in the
+question. When no part has items, do not ask.
 
 An action that only the person can do, such as a merge or a ruleset change, stays in the
 report. It is in no option, unless Claude can help with it.
