@@ -980,6 +980,47 @@ describe('direnv', () => {
     expect(ran.stdout).toContain(DIRENV_LINE)
   })
 
+  it('still finds the .envrc when a gh check that hangs spends the whole clock', async () => {
+    // Each gh child answers only at its own time limit, so the clock is
+    // gone when the gh checks end. Each `.envrc` read takes 20 ms. A walk
+    // that started after the gh checks would get no time, and read as late.
+    const { env, dir, root } = project(file)
+    const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+    const runner: Runner = async (command, _args = [], options = {}) => {
+      if (command !== 'gh') return runResult({})
+      await wait(((options as { timeoutMs?: number }).timeoutMs ?? 0) + 20)
+      return runResult({ status: null, timedOut: true, signal: 'SIGKILL' })
+    }
+    const slow: FileReads = {
+      ...nodeFileReads,
+      kindOf: (target) =>
+        path.basename(target) === '.envrc'
+          ? wait(20).then(() => nodeFileReads.kindOf(target))
+          : nodeFileReads.kindOf(target),
+    }
+    const output = captureOutput()
+
+    await runSessionStart({
+      env,
+      output,
+      run: runner,
+      files: envrcOnlyUnder(slow, root),
+      deadlineMs: 300,
+      procPresent: true,
+      cwd: dir,
+    })
+
+    const stdout = systemMessageOf(output.stdout())
+    expect(stdout).toBe(
+      [
+        '',
+        'workstreams: ⚠️ a gh login could not be checked',
+        'workstreams: ⚠️ the gh stack extension could not be checked',
+        `workstreams: ⚠️ ${DIRENV_LINE}`,
+      ].join('\n'),
+    )
+  })
+
   it('says it could not look for an .envrc when a read fails for another reason', async () => {
     const files: FileReads = {
       ...nodeFileReads,

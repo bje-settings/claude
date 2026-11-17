@@ -335,6 +335,11 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
         ? await withinDeadline(reviewerRows(plugins, files), remaining(), null)
         : null,
   }))
+  // The `.envrc` walk also starts now, on the full clock. A gh check that
+  // hangs spends the clock. A walk that started after it would then read
+  // as late, with no late read at all.
+  const direnvUnset = env.DIRENV_DIR === undefined || env.DIRENV_DIR === ''
+  const envrc = direnvUnset ? withinDeadline(envrcInOrAbove(files, cwd), remaining(), null) : null
   const [ghPresent, pgrepPresent, lsofPresent] = await Promise.all([
     lookUp('gh'),
     lookUp('pgrep'),
@@ -414,8 +419,8 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
   // absent gh stack extension does not count: gh keeps its extensions
   // outside `GH_CONFIG_DIR`.
   const ghCheckFailed = ghLogin !== true || ghStack === null
-  if (ghCheckFailed && (env.DIRENV_DIR === undefined || env.DIRENV_DIR === '')) {
-    const found = await withinDeadline(envrcInOrAbove(files, cwd), remaining(), null)
+  if (ghCheckFailed && envrc !== null) {
+    const found = await envrc
     if (found === null) {
       problems.push(
         'an .envrc in or above this directory could not be checked, so direnv may not be loaded',
