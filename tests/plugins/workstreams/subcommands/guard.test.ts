@@ -633,6 +633,112 @@ describe('the main thread and the tools this never reads', () => {
   })
 })
 
+// #263: a hook acts only on its own plugin's work. Each of the three rules
+// binds the two workstreams agents, and no other caller.
+describe('who it binds (#263)', () => {
+  const BOUND = ['workstreams:stream', 'workstreams:round'] as const
+  /** Callers the guard must allow in silence: other agents, an agent with no
+   *  type, and a `--agent workstreams:stream` session, which has an
+   *  `agent_type` and no `agent_id`. */
+  const FREE: readonly { readonly name: string; readonly fields: Partial<ToolCall> }[] = [
+    { name: 'general-purpose', fields: { agentType: 'general-purpose' } },
+    { name: 'gh:shepherd-prs', fields: { agentType: 'gh:shepherd-prs' } },
+    { name: 'a subagent with no agent_type', fields: { agentType: null } },
+    {
+      name: 'a --agent workstreams:stream session',
+      fields: { agentId: null, agentType: 'workstreams:stream' },
+    },
+  ]
+  const untouched = {
+    git: () => Promise.reject(new Error('git must not be asked')),
+    processes: () => Promise.reject(new Error('processes must not be asked')),
+  }
+
+  for (const free of FREE) {
+    it(`allows run_in_background for ${free.name}`, async () => {
+      const output = captureOutput()
+
+      const verdict = await decide(call({ ...free.fields, background: true, command: 'x' }), {
+        ...untouched,
+        output,
+      })
+
+      expect(verdict).toEqual({ decision: 'allow' })
+      expect(output.stderr()).toBe('')
+    })
+
+    it(`allows git restore on a dirty tree for ${free.name}`, async () => {
+      const output = captureOutput()
+
+      const verdict = await decide(call({ ...free.fields, command: 'git restore .', cwd: '/w' }), {
+        ...untouched,
+        output,
+      })
+
+      expect(verdict).toEqual({ decision: 'allow' })
+      expect(output.stderr()).toBe('')
+    })
+
+    it(`allows a second vitest suite for ${free.name}`, async () => {
+      const output = captureOutput()
+
+      const verdict = await decide(call({ ...free.fields, command: 'pnpm test', cwd: '/w' }), {
+        git: untouched.git,
+        processes: running([{ pid: 4242, cwd: '/w' }]),
+        output,
+      })
+
+      expect(verdict).toEqual({ decision: 'allow' })
+      expect(output.stderr()).toBe('')
+    })
+  }
+
+  for (const agentType of BOUND) {
+    it(`refuses run_in_background for ${agentType}`, async () => {
+      const verdict = await decide(call({ agentType, background: true, command: 'x' }), {
+        ...untouched,
+        output: captureOutput(),
+      })
+
+      expect(verdict).toMatchObject({
+        decision: 'deny',
+        reason: expect.stringContaining(`subagent ${agentType}`),
+      })
+    })
+
+    it(`refuses git restore on a dirty tree for ${agentType}`, async () => {
+      const sandbox = createSandbox()
+      const git = createGitFixtures(sandbox)
+      const work = git.create(sandbox.join('r'))
+      git.dirty(work)
+
+      const verdict = await decide(call({ agentType, command: 'git restore .', cwd: work }), {
+        git: readerFor(sandbox),
+        processes: untouched.processes,
+        output: captureOutput(),
+      })
+
+      expect(verdict).toMatchObject({
+        decision: 'deny',
+        reason: expect.stringContaining(`subagent ${agentType}`),
+      })
+    })
+
+    it(`refuses a second vitest suite for ${agentType}`, async () => {
+      const verdict = await decide(call({ agentType, command: 'pnpm test', cwd: '/w' }), {
+        git: untouched.git,
+        processes: running([{ pid: 4242, cwd: '/w' }]),
+        output: captureOutput(),
+      })
+
+      expect(verdict).toMatchObject({
+        decision: 'deny',
+        reason: expect.stringContaining(`subagent ${agentType}`),
+      })
+    })
+  }
+})
+
 describe('run_in_background', () => {
   it('refuses it for a subagent, naming the agent and the remedy', async () => {
     const output = captureOutput()
@@ -651,18 +757,6 @@ describe('run_in_background', () => {
     // Nothing is written here: the decision is the caller's to render.
     expect(output.stdout()).toBe('')
     expect(output.stderr()).toBe('')
-  })
-
-  it('names a subagent whose type the payload did not carry', async () => {
-    const output = captureOutput()
-
-    const verdict = await decide(call({ agentType: null, background: true }), {
-      git: () => Promise.reject(new Error('git must not be asked')),
-      processes: () => Promise.reject(new Error('processes must not be asked')),
-      output,
-    })
-
-    expect(verdict).toMatchObject({ reason: expect.stringContaining('for this subagent:') })
   })
 
   it('is asked before the command is read, so a background call with no command is still refused', async () => {
@@ -994,6 +1088,7 @@ describe('a second vitest suite', () => {
       const output = captureOutput()
       const stdin = JSON.stringify({
         agent_id: 'a',
+        agent_type: 'workstreams:stream',
         tool_name: 'Bash',
         cwd: '/root',
         tool_input: { command: 'pnpm -C /link test' },

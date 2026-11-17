@@ -29,17 +29,17 @@
 //     A third spelling is `pnpm test` or `pnpm run test`. `package.json`
 //     maps that script to `vitest run --coverage`.
 //
-// **Who it binds.** Round 8 ruling 5: a subagent, never the main thread.
-// The input carries `agent_id` "only when the hook fires inside a
-// subagent" (hooks.md, "Common input fields"), and that is the whole
-// test. The refusal reports `agent_type`, so a person who reads the
-// denial knows which worker was stopped. The guard never matches on it: a
-// plugin subagent's `agent_type` is the plugin-scoped name (sub-agents.md,
-// "Project level hooks for subagent events"). To match it would bind
-// only the `workstreams:stream` agent, and leave every reviewer, round
-// agent, and general purpose worker that gets the same briefs unguarded.
-// The orchestrator keeps backgrounding commands, because completion is
-// what wakes it.
+// **Who it binds.** Only this plugin's own agents (#263): a call with an
+// `agent_id`, and an `agent_type` in {@link BOUND_AGENTS}. The input carries
+// `agent_id` for "the subagent or in-process teammate the hook fires in"
+// (hooks.md, "Common input fields"). It carries `agent_type` there too, and
+// for a session started with `--agent`. A plugin subagent reports its
+// plugin-scoped name, such as `workstreams:stream` (sub-agents.md). Every
+// other call is allowed in silence: the main conversation, a `--agent`
+// session, and each subagent of another plugin or of Claude Code itself. A
+// hook acts only on its own plugin's work (`.claude/rules/_design-principles.md`,
+// Mechanisms). The refusal names `agent_type`, so a person who reads the
+// denial knows which worker was stopped.
 //
 // **What it cannot see.** A command Claude asked to background carries
 // `run_in_background: true`, and is denied here. A command the harness
@@ -53,8 +53,7 @@
 //
 // A hook also cannot see whether a reviewer agent still runs. So the rule
 // that a subagent must not edit while a reviewer still reads stays a
-// brief line here. #263, which gives each reviewer its own worktree, is
-// what can enforce it.
+// brief line.
 //
 // **Never the reason a session stops.** This decides a tool call on
 // every Bash command of every session the plugin is installed in.
@@ -112,10 +111,11 @@ export type ProcessReader = () => Promise<readonly RunningProcess[] | null>
  *  payload is Claude Code's, not ours. A field that is missing is a fact
  *  about the call, rather than a reason to fail. */
 export interface ToolCall {
-  /** Present only inside a subagent. Its presence is the whole of who this
-   *  guard binds. */
+  /** Present only inside a subagent or a teammate. With no `agentId`, the
+   *  guard binds nothing. */
   readonly agentId: string | null
-  /** Named in a denial, never matched on. */
+  /** The agent's name. The guard binds only {@link BOUND_AGENTS}, and names
+   *  the agent in a denial. */
   readonly agentType: string | null
   readonly toolName: string | null
   /** The shell command, for `Bash` and for `PowerShell`. */
@@ -141,6 +141,10 @@ export type Verdict =
  *  `hooks.json` says the same thing. This is the half that survives if
  *  someone narrows it. */
 const SHELL_TOOLS: readonly string[] = ['Bash', 'PowerShell']
+
+/** The agents of this plugin, by the plugin-scoped `agent_type` each one
+ *  reports. The guard binds these and no other agent. */
+const BOUND_AGENTS: readonly string[] = ['workstreams:stream', 'workstreams:round']
 
 /** The bound the brief gives a foreground command, named in the denial so the
  *  remedy arrives with the refusal. */
@@ -652,9 +656,17 @@ export const vitestTarget = (command: string): VitestTarget | undefined => {
 /** Whether `command` starts a `vitest` run in any segment. */
 export const runsVitest = (command: string): boolean => vitestTarget(command) !== undefined
 
+/** A call the guard binds: one from an agent of {@link BOUND_AGENTS}. */
+type BoundCall = ToolCall & { readonly agentId: string; readonly agentType: string }
+
+/** Whether the guard binds this call. Every other call is allowed in silence:
+ *  the main conversation, a `--agent` session with no `agent_id`, and each
+ *  agent of another plugin or of Claude Code itself. */
+const binds = (call: ToolCall): call is BoundCall =>
+  call.agentId !== null && call.agentType !== null && BOUND_AGENTS.includes(call.agentType)
+
 /** The subagent as a denial names it. */
-const who = (call: ToolCall): string =>
-  call.agentType === null ? 'this subagent' : `subagent ${call.agentType}`
+const who = (call: BoundCall): string => `subagent ${call.agentType}`
 
 /** Only a tracked file's uncommitted state is work this command can
  *  destroy. `git status --porcelain` marks an untracked file `??`, which
@@ -708,7 +720,7 @@ const namedDirectory = async (
  *  second check here would be a branch no test could ever reach. */
 const secondSuite = async (
   command: string,
-  call: ToolCall,
+  call: BoundCall,
   context: {
     readonly processes: ProcessReader
     readonly output: Output
@@ -767,8 +779,8 @@ const secondSuite = async (
  * The verdict on one tool call. git and the process list are asked only
  * when they must be.
  *
- * The order is the cost order. A main thread call is answered at once,
- * with no read of the command. So is a call of any tool but a shell. A
+ * The order is the cost order. A call from any agent but this plugin's own,
+ * the main thread included, is answered at once, with no read of the command. So is a call of any tool but a shell. A
  * shell command that neither runs `vitest` nor asks for anything
  * destructive gets no further read either.
  *
@@ -793,7 +805,7 @@ export const decide = async (
     readonly resolve?: PathResolver
   },
 ): Promise<Verdict> => {
-  if (call.agentId === null) return { decision: 'allow' }
+  if (!binds(call)) return { decision: 'allow' }
   if (call.toolName === null || !SHELL_TOOLS.includes(call.toolName)) return { decision: 'allow' }
 
   if (call.background) {
