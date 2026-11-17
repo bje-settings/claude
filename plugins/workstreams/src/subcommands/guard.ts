@@ -34,12 +34,13 @@
 // `agent_id` for "the subagent or in-process teammate the hook fires in"
 // (hooks.md, "Common input fields"). It carries `agent_type` there too, and
 // for a session started with `--agent`. A plugin subagent reports its
-// plugin-scoped name, such as `workstreams:stream` (sub-agents.md). Every
-// other call is allowed in silence: the main conversation, a `--agent`
-// session, and each subagent of another plugin or of Claude Code itself. A
-// hook acts only on its own plugin's work (`.claude/rules/_design-principles.md`,
-// Mechanisms). The refusal names `agent_type`, so a person who reads the
-// denial knows which worker was stopped.
+// plugin-scoped name, such as `workstreams:stream` (sub-agents.md). The
+// guard allows each other call in silence. That includes the main
+// conversation, a `--agent` session, and each subagent of another plugin or
+// of Claude Code itself. A hook acts only on its own plugin's work
+// (`.claude/rules/_design-principles.md`, Mechanisms). The refusal names
+// `agent_type`, so a person who reads the denial knows which worker was
+// stopped.
 //
 // **What it cannot see.** A command Claude asked to background carries
 // `run_in_background: true`, and is denied here. A command the harness
@@ -779,10 +780,11 @@ const secondSuite = async (
  * The verdict on one tool call. git and the process list are asked only
  * when they must be.
  *
- * The order is the cost order. A call from any agent but this plugin's own,
- * the main thread included, is answered at once, with no read of the command. So is a call of any tool but a shell. A
- * shell command that neither runs `vitest` nor asks for anything
- * destructive gets no further read either.
+ * The order is the cost order. The guard answers at once a call that it
+ * does not bind, and does not read the command. The main thread is one such
+ * call. So is a call of any tool but a shell. A shell command that neither
+ * runs `vitest` nor asks for anything destructive gets no further read
+ * either.
  *
  * The one probe for git is `git status --porcelain`, on the command's
  * own target tree. It is scoped with `-- <pathspec>` when a
