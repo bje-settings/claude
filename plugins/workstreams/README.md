@@ -123,8 +123,8 @@ parts, from the state and the merge sequence to the cost. Each item in parts 2 t
 one recommended action and its owner. A plan issue still open after its pull request
 merged is an open item.
 
-After the report, `start` asks one question, with one option for each part that has
-items. It does the accepted actions that Claude owns. Then it posts the same parts,
+After the written report, `start` asks one question, with one option for each part that
+has items. Each option lists its items in full, so the question stands alone. It does the accepted actions that Claude owns. Then it posts the same parts,
 and what it did, on each issue of the round. The first line is `<round> end, <date>.`
 
 The cost comes from each agent's completion notification and from `gh pr view --json

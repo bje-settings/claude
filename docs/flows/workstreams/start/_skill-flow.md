@@ -127,7 +127,7 @@ flowchart TD
     R -->|Yes: report before any question| Z[Round end: stop the watch if one runs; report state and merge sequence,<br/>decisions, old defects, scope changes, other items, cost]
     Z --> Z1{items with an action?}
     Z1 -->|No| Z3
-    Z1 -->|Yes| Z2([Ask one question: which parts' actions to accept]):::pause
+    Z1 -->|Yes| Z2([After the written report, ask one question: which parts' actions to accept;<br/>each option lists its items in full]):::pause
     Z2 --> Z4[Do each accepted action Claude owns;<br/>give the steps for each the person owns]
     Z4 --> Z3([Post the round-end record on each issue,<br/>with what was done; nothing merges])
 
