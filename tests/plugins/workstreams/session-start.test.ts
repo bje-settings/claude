@@ -127,12 +127,13 @@ it('ends inside its 3 s timeout, exits 0, and reports could not be checked, when
   }
   const registry = sandbox.join('installed_plugins.json')
   execFileSync('mkfifo', [registry])
-  // An `.envrc` above the hook's cwd, and no direnv loaded. The walk then
-  // stops in the sandbox. The gh children spend the clock, and the walk
-  // must still answer (it starts with them, not after them).
-  writeFileSync(sandbox.join('.envrc'), '')
-  const cwd = sandbox.join('project')
-  mkdirSync(cwd)
+  // An `.envrc` above the hook's cwd, and no direnv loaded. The walk finds
+  // it in `project`, which is not above `HOME`, so only the real cwd finds
+  // it. The gh children spend the clock, and the walk must still answer
+  // (it starts with them, not after them).
+  const cwd = sandbox.join('project', 'src')
+  mkdirSync(cwd, { recursive: true })
+  writeFileSync(sandbox.join('project', '.envrc'), '')
   const { DIRENV_DIR: _loaded, ...unloaded } = sandbox.env
   const env = {
     ...unloaded,

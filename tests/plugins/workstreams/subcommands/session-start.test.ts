@@ -25,8 +25,8 @@ import {
 const ROOT_DIR = path.parse(process.cwd()).root
 
 /** `files`, but an `.envrc` that is not under `root` is not there
- *  (`ENOENT`). So no test reads a real `.envrc` on this machine. A `null`
- *  root keeps every `.envrc` out. */
+ *  (`ENOENT`). Every run in this file reads through it, so no test reads a
+ *  real `.envrc` on this machine. A `null` root keeps every `.envrc` out. */
 const envrcOnlyUnder = (files: FileReads, root: string | null): FileReads => ({
   ...files,
   kindOf: (target) =>
@@ -419,10 +419,13 @@ describe('the deadline', () => {
       run: runner,
       // The gh children start only after the `PATH` walks. Each walk waits
       // 200 ms here, so the full deadline is no longer left (#267).
-      files: {
-        ...nodeFileReads,
-        kindOf: (target) => delay(200).then(() => nodeFileReads.kindOf(target)),
-      },
+      files: envrcOnlyUnder(
+        {
+          ...nodeFileReads,
+          kindOf: (target) => delay(200).then(() => nodeFileReads.kindOf(target)),
+        },
+        null,
+      ),
       deadlineMs: 1_234,
       procPresent: true,
       cwd: ROOT_DIR,
@@ -459,10 +462,13 @@ describe('the deadline', () => {
       run: runner,
       // The fallback starts only after the registry read fails. That read
       // waits 200 ms here, so the full deadline is no longer left (#267).
-      files: {
-        ...nodeFileReads,
-        readText: (file) => delay(200).then(() => nodeFileReads.readText(file)),
-      },
+      files: envrcOnlyUnder(
+        {
+          ...nodeFileReads,
+          readText: (file) => delay(200).then(() => nodeFileReads.readText(file)),
+        },
+        null,
+      ),
       deadlineMs: 4_321,
       procPresent: true,
       cwd: ROOT_DIR,
@@ -498,7 +504,7 @@ describe('concurrency', () => {
       env,
       output,
       run: runner,
-      files: nodeFileReads,
+      files: envrcOnlyUnder(nodeFileReads, null),
       deadlineMs: DEADLINE_MS,
       procPresent: true,
       cwd: ROOT_DIR,
@@ -981,7 +987,7 @@ describe('direnv', () => {
   })
 
   it('still finds the .envrc when a gh check that hangs spends the whole clock', async () => {
-    // Each gh child answers only at its own time limit, so the clock is
+    // Each gh child answers just after its own time limit, so the clock is
     // gone when the gh checks end. Each `.envrc` read takes 20 ms. A walk
     // that started after the gh checks would get no time, and read as late.
     const { env, dir, root } = project(file)
