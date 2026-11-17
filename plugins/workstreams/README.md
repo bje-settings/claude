@@ -866,13 +866,15 @@ workstreams: ⚠️ a gh login could not be checked
 workstreams: ⚠️ the gh stack extension could not be checked
 workstreams: ⚠️ the installed plugins file could not be read
 workstreams: ⚠️ no installed copy of pr-review-toolkit could be checked for its reviewer agents
+workstreams: ⚠️ an .envrc in or above this directory could not be checked, so direnv may not be loaded
 workstreams: ⚠️ direnv is not loaded for this directory, so gh may have no login
 ```
 
-The direnv line shows only when all three hold. A gh check failed or could not run. A file
-named `.envrc` is in the working directory or a parent of it. `DIRENV_DIR` is unset or empty.
-When the `.envrc` read does not finish in time, the line says that the `.envrc` could not
-be checked.
+The last two lines show only when the gh login check failed or could not run, or the gh
+extension list could not be read, and `DIRENV_DIR` is unset or empty. Then the hook looks for
+a file named `.envrc` in the working directory and each parent of it. When it finds one, it
+writes the direnv line. When a read does not finish in time, or fails for a reason other than
+"not there", it writes the `.envrc` line.
 
 A `gh` child that does not exit is killed at the deadline, with its process group. A read that hangs
 holds a worker thread, and node waits for that thread before the process can exit. So when a read

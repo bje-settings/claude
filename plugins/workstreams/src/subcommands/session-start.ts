@@ -255,13 +255,19 @@ export interface SessionStartEdges {
   readonly cwd: string
 }
 
-/** Whether a file named `.envrc` is in `start` or in a parent of it.
- *  A directory named `.envrc` is not a match. */
-const envrcAbove = async (files: FileReads, start: string): Promise<boolean> => {
+/** Whether a file named `.envrc` is in `start` or in a parent of it, or
+ *  `null` when a read failed for a reason other than "not there".
+ *  A directory named `.envrc` is not a match. Only `ENOENT` and `ENOTDIR`
+ *  mean "not there", as for the registry above. */
+const envrcInOrAbove = async (files: FileReads, start: string): Promise<boolean | null> => {
   let directory = start
   for (;;) {
-    const kind = await files.kindOf(path.join(directory, '.envrc')).catch(() => 'absent' as const)
-    if (kind === 'other') return true
+    try {
+      if ((await files.kindOf(path.join(directory, '.envrc'))) === 'other') return true
+    } catch (error) {
+      const { code } = error as NodeJS.ErrnoException
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return null
+    }
     const parent = path.dirname(directory)
     if (parent === directory) return false
     directory = parent
@@ -401,15 +407,18 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
   const absent = absentDependencies(table, (tool) => presence.get(tool) as boolean)
 
   // `gh` may have no login only because direnv did not load here. direnv
-  // sets `DIRENV_DIR` when it is loaded. So this adds one reason when a
-  // gh check did not pass, an `.envrc` is above the working directory,
-  // and `DIRENV_DIR` is unset or empty. It needs no direnv on `PATH`.
+  // sets `DIRENV_DIR` when it is loaded. So this adds one reason when the
+  // gh login check failed or could not answer, or the gh extension list
+  // could not be read, an `.envrc` is in or above the working directory,
+  // and `DIRENV_DIR` is unset or empty. It needs no direnv on `PATH`. An
+  // absent gh stack extension does not count: gh keeps its extensions
+  // outside `GH_CONFIG_DIR`.
   const ghCheckFailed = ghLogin !== true || ghStack === null
   if (ghCheckFailed && (env.DIRENV_DIR === undefined || env.DIRENV_DIR === '')) {
-    const found = await withinDeadline(envrcAbove(files, cwd), remaining(), null)
+    const found = await withinDeadline(envrcInOrAbove(files, cwd), remaining(), null)
     if (found === null) {
       problems.push(
-        'an .envrc above this directory could not be checked, so direnv may not be loaded',
+        'an .envrc in or above this directory could not be checked, so direnv may not be loaded',
       )
     } else if (found) {
       problems.push('direnv is not loaded for this directory, so gh may have no login')
