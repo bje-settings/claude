@@ -8,10 +8,12 @@ user-invocable: false
 Pull request, and any `pr-state` flags: $ARGUMENTS. `pr-state` reads the review facts from
 the [statuses](#statuses). A flag from the caller wins over a status.
 
-Its worktree comes from `git worktree list`, matched against the pull request's head
-branch. The round's issues are the ones its body closes (`gh pr view <number>`), or
-the ones the caller names. No worktree match, or more than one, is a stop. Name what is
-absent. A round dispatched into a guessed worktree will guess again inside it.
+The round agent works in a worktree of its own, which Claude Code makes from the default
+branch. A branch can be checked out in one worktree only. So before a round, no worktree
+may hold the pull request's head branch: the caller detaches the one that holds it
+([tick.md](../start/tick.md) step 4). A worktree in `git worktree list` that still holds the
+branch is a stop. Name it. The round's issues are the ones its body closes
+(`gh pr view <number>`), or the ones the caller names.
 
 The model for the round agent comes from the newest plan comment on those issues, or from
 the caller. When neither names one, choose it by this rule. Do not ask, and do not stop:
@@ -24,9 +26,9 @@ the caller. When neither names one, choose it by this rule. Do not ask, and do n
 
 Give the model and the reason in the return of the call that dispatches the round.
 
-Both commands below run in that worktree. They take no repository argument, and read it
-from the working directory. So, outside a checkout, they report on git rather than on
-the pull request.
+The commands below take no repository argument, and read it from the working directory.
+So, outside a checkout of the repository, they report on git rather than on the pull
+request.
 
 Do one step for each call, then return. Never wait: the caller waits.
 
@@ -57,7 +59,9 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
 ## Process
 
 0. Called with a round agent's JSON return: check its `substantial` against
-   `git -C <worktree> diff <from> <head>`. The diff decides the description. Record that
+   `git -C <worktree> diff <from> <head>`, where `<worktree>` is the round agent's worktree
+   that its completion notification names. A round with no commits keeps no worktree: then
+   use any worktree from `git worktree list`. The diff decides the description. Record that
    round's status with `mark` and its `head`, and name any disagreement. A `mark` that
    failed is a stop: say so, post no comment, and settle no thread. Then post the round
    comment. A comment that did not post is no stop: the status is the state. Name it in the
@@ -104,8 +108,9 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    | `rot-check` | Step 4. |
    | `done` | Step 5. |
 
-3. Dispatch one round agent: one subagent, `general-purpose`, in the pull request's
-   worktree, with the model from the rule above. Build its brief from
+3. Dispatch one round agent: one `workstreams:round` subagent, with the model from the
+   rule above, and `isolation: "worktree"`. Give it no `name`: with agent teams on, a named
+   spawn ignores the agent's own `isolation` (#276). Build its brief from
    [round-brief.md](round-brief.md), the round agent's whole instruction, and add
    [round-2.md](round-2.md) verbatim for round 2. Round 2's brief carries round 1's
    findings and rejected list, from the round 1 return that the caller passes. Fill in

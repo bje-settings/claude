@@ -11,22 +11,23 @@ scratchpad. If the plan comment does not name the order and model for every issu
 `$ARGUMENTS`, stop. Say which is missing rather than guess: a placeholder left in a brief is
 a layer that will guess too.
 
-One stream is one worktree, with one branch and one agent per layer, in sequence.
+One stream is one branch and one agent per layer, in sequence. Each agent works in a
+worktree of its own, which Claude Code makes from the default branch.
 
 Do one step for each call, then return. Never wait: the caller waits. When a layer's
 return is in view and not yet read, do step 3. Otherwise do steps 1 and 2.
 
 ## Process
 
-1. One worktree for the whole stack, created once, from the tip the round was planned
-   against. Then install, from the lock file that is actually there: `pnpm-lock.yaml`
-   means `pnpm install`, `yarn.lock` means `yarn install`, `package-lock.json` means
-   `npm ci`, and a `uv.lock` beside any of them means `uv sync --locked` too.
+1. Name the install for the brief, from the lock file that is actually there:
+   `pnpm-lock.yaml` means `pnpm install`, `yarn.lock` means `yarn install`,
+   `package-lock.json` means `npm ci`, and a `uv.lock` beside any of them means
+   `uv sync --locked` too. The layer agent runs it in its own worktree.
 
    An install can write outside the worktree. lefthook writes into the clone's shared
    `.git/hooks/`, and leaves a hook file behind when a later revision stops using it. Say
-   so in the brief when the repository installs git hooks, and check the root checkout
-   afterward.
+   so in the brief when the repository installs git hooks. The caller's tick checks the
+   root checkout.
 
 2. Write the brief as a file. Fill every placeholder of [brief.md](brief.md), the layer
    agent's whole instruction, into a file of its own, one per layer. Add what the review
@@ -36,9 +37,11 @@ return is in view and not yet read, do step 3. Otherwise do steps 1 and 2.
    Check the brief against the repository before you send it.
 
    Then dispatch one `workstreams:stream` subagent, with the `model` the caller sized it
-   at. The agent inherits this session's effort. The caller cannot pass effort per call.
-   Return once it is dispatched. Its return comes to the caller as a completion
-   notification.
+   at, and `isolation: "worktree"`. Give it no `name`: with agent teams on, a named spawn
+   starts a teammate that ignores the agent's own `isolation`, and only `isolation` on the
+   call holds (#276). The agent inherits this session's effort. The caller cannot pass
+   effort per call. Return once it is dispatched. Its return comes to the caller as a
+   completion notification, which names the agent's worktree and branch.
 
    The layer opens its own draft pull request with `gh stack submit`, and with
    `gh pr create` only where stacks are not enabled. A stack that is not a stack in the

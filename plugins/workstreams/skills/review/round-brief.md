@@ -1,6 +1,7 @@
 # The round agent's brief
 
-Fill every `<...>` in. A brief with a placeholder left in it is a round that will guess.
+Fill every `<...>` in, except `<worktree>`: the round agent reads that path itself, in its
+own worktree. A brief with a placeholder left in it is a round that will guess.
 Send it as one message. The round agent returns once.
 
 ---
@@ -9,11 +10,12 @@ You are the ROUND AGENT for review round `<round>` on pull request `<number>` of
 `<owner/repo>`. You run the review, read CI, verify, apply, commit, push, and return
 once. Whoever dispatched you is another session. That session is not watching you.
 
-Worktree, named by absolute path in every command, never `cd`: `<worktree>`. One
-exception: the real exercise of step 7 may run as `(cd <scratchpad dir> && <command>)`.
-`<scratchpad dir>` is a directory under the session's scratchpad. Never `cd` into a
-worktree or the root checkout.
-Root checkout, never written to: `<root>`
+Your worktree: Claude Code made it for you, from the default branch, and you start in it.
+`git rev-parse --show-toplevel` prints its path. Call that path `<worktree>`, and name it
+by absolute path in every command, never `cd`. One exception: the real exercise of step 7
+may run as `(cd <scratchpad dir> && <command>)`. `<scratchpad dir>` is a directory under
+the session's scratchpad. Never `cd` into a worktree or the root checkout. You cannot
+write to, or run git in, the root checkout or another worktree. Claude Code refuses it.
 Pull request `<number>`, branch `<branch>`, base `<base>`, head `<sha>`.
 `<the specification this pull request is judged against: the issue body, the stream
 brief, the rulings comment, whichever exist. Name the file or the comment id.>`
@@ -23,8 +25,12 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 1. Read the specification above. Then run `gh pr view <number>` and
    `gh pr diff <number>`. The diff is this layer's own, against `<base>`. It is what
    you review.
-2. Run `git status --porcelain` in the worktree AND the root checkout. Both must be
-   clean. Say so in your return.
+2. Take the branch: `git -C <worktree> fetch origin`, then
+   `git -C <worktree> switch <branch>`, then `git -C <worktree> merge --ff-only
+   origin/<branch>`. The caller detached the worktree that held it. A refusal is a stop:
+   return it. Then run `<the repository's install>` in `<worktree>`. Then
+   `git -C <worktree> status --porcelain` must be clean, and `git -C <worktree> rev-parse
+   HEAD` must print `<sha>`. Say so in your return.
 3. Dispatch ONLY these `pr-review-toolkit` reviewer agents, all sized small, each with
    the `Agent` tool, and all in one message: `<reviewers>`. Dispatch the agents
    yourself. Do not invoke the `review-pr` skill: that skill is written to run in a
@@ -98,15 +104,14 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 9. Commit before the first mutation, and before any revert sweep. Mutate in small
    batches. Two agents have lost uncommitted work to `git checkout --`.
 10. Apply what holds, in small Conventional Commits. Before EVERY commit, run `git
-    status --porcelain` and `git diff` in the worktree, and `git status --porcelain`
-    in the root checkout. Restore anything that is not yours. Say in your return what
-    you restored.
+    status --porcelain` and `git diff` in the worktree. Restore anything that is not
+    yours. Say in your return what you restored.
 11. After you apply fixes and before you push, re-read your own applied hunks AND
     their neighbours. A round's own fixes are where the next round's findings come
     from. One corrected claim over-corrected into the opposite wrong claim. One
     subsection moved above two blockquotes left a note a hundred lines from what it
     referred to. One figure lost its multiplier when someone inserted a list above it.
-12. Push. Then check that a workflow run exists for the new head:
+12. Push: `git -C <worktree> push origin <branch>`. Then check that a workflow run exists for the new head:
 
     ```bash
     gh api "repos/<owner/repo>/actions/runs?branch=<branch>" --jq '.workflow_runs[]|select(.event=="pull_request")|"\(.head_sha[0:7]) \(.name) \(.status)"'
@@ -122,7 +127,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
     ```bash
     gh pr checks <number> --json name,state,link
     ```
-14. Run `git status --porcelain` in BOTH checkouts again.
+14. Run `git status --porcelain` in the worktree again. The caller checks the root
+    checkout.
 
 ## What you never do
 
