@@ -126,6 +126,24 @@ it('says nothing at all when the main conversation asks for the same thing', () 
   expect(result.stderr).toBe('')
 })
 
+it('says nothing when an agent of another plugin asks for the same thing (#263)', () => {
+  const sandbox = createSandbox()
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'general-purpose',
+      cwd: sandbox.path,
+      tool_input: { command: 'pnpm test', run_in_background: true },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe('')
+})
+
 it('denies a subagent git checkout with a pathspec on a tree holding uncommitted work', () => {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)

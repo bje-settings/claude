@@ -637,12 +637,14 @@ describe('the main thread and the tools this never reads', () => {
 // binds the two workstreams agents, and no other caller.
 describe('who it binds (#263)', () => {
   const BOUND = ['workstreams:stream', 'workstreams:round'] as const
-  /** Callers the guard must allow in silence: other agents, an agent with no
-   *  type, and a `--agent workstreams:stream` session, which has an
-   *  `agent_type` and no `agent_id`. */
+  /** Callers the guard must allow in silence. A near name, such as a bare
+   *  `stream` or a `workstreams:` name that is no agent, keeps the match
+   *  exact. A `--agent` session has an `agent_type` and no `agent_id`. */
   const FREE: readonly { readonly name: string; readonly fields: Partial<ToolCall> }[] = [
     { name: 'general-purpose', fields: { agentType: 'general-purpose' } },
-    { name: 'gh:shepherd-prs', fields: { agentType: 'gh:shepherd-prs' } },
+    { name: 'shepherd:shepherd-prs', fields: { agentType: 'shepherd:shepherd-prs' } },
+    { name: 'a bare stream agent', fields: { agentType: 'stream' } },
+    { name: 'workstreams:review, which is no agent', fields: { agentType: 'workstreams:review' } },
     { name: 'a subagent with no agent_type', fields: { agentType: null } },
     {
       name: 'a --agent workstreams:stream session',
