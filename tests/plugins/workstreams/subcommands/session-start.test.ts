@@ -20,6 +20,9 @@ import {
   runSessionStart,
 } from '#workstreams/subcommands/session-start.ts'
 
+/** A working directory with no `.envrc` in it or above it. */
+const ROOT_DIR = path.parse(process.cwd()).root
+
 /** A sandbox with a registry file written into the `HOME` inside it. */
 const withRegistry = (sandbox: Sandbox, contents: string): NodeJS.ProcessEnv => {
   const file = registryPath(sandbox.env)
@@ -80,6 +83,7 @@ const run = async (
   procPresent = true,
   files: FileReads = nodeFileReads,
   deadlineMs = DEADLINE_MS,
+  cwd = ROOT_DIR,
 ): Promise<{ status: number; stdout: string; raw: string; stderr: string; asked: string[] }> => {
   const output = captureOutput()
   const runner = tableRunner(table)
@@ -90,6 +94,7 @@ const run = async (
     files,
     deadlineMs,
     procPresent,
+    cwd,
   })
   const raw = output.stdout()
   return {
@@ -406,6 +411,7 @@ describe('the deadline', () => {
       },
       deadlineMs: 1_234,
       procPresent: true,
+      cwd: ROOT_DIR,
     })
 
     expect(asked.length).toBeGreaterThan(0)
@@ -445,6 +451,7 @@ describe('the deadline', () => {
       },
       deadlineMs: 4_321,
       procPresent: true,
+      cwd: ROOT_DIR,
     })
 
     const fallback = runner.asked.find((call) => call.key === 'claude plugin list --json')
@@ -480,6 +487,7 @@ describe('concurrency', () => {
       files: nodeFileReads,
       deadlineMs: DEADLINE_MS,
       procPresent: true,
+      cwd: ROOT_DIR,
     })
 
     expect(windows.length).toBe(2)
@@ -836,5 +844,129 @@ describe('a filesystem read that never answers', () => {
     expect(ran.stdout).toBe(
       '\nworkstreams: ⚠️ no installed copy of pr-review-toolkit could be checked for its reviewer agents',
     )
+  })
+})
+
+describe('direnv', () => {
+  const NO_LOGIN = { ...HEALTHY, 'gh auth token': { status: 1 } }
+  const DIRENV_LINE = 'direnv is not loaded for this directory, so gh may have no login'
+
+  /** A project directory in the sandbox, with `.envrc` made by `make`. */
+  const project = (make?: (envrc: string) => void): { env: NodeJS.ProcessEnv; dir: string } => {
+    const { sandbox, env } = healthySandbox()
+    delete env.DIRENV_DIR
+    const dir = sandbox.join('project', 'src')
+    mkdirSync(dir, { recursive: true })
+    make?.(path.join(sandbox.join('project'), '.envrc'))
+    return { env, dir }
+  }
+  const file = (envrc: string): void => writeFileSync(envrc, '')
+
+  it('says direnv is not loaded when gh has no login, an .envrc is above, and DIRENV_DIR is unset', async () => {
+    const { env, dir } = project(file)
+
+    const ran = await run(env, NO_LOGIN, true, nodeFileReads, DEADLINE_MS, dir)
+
+    expect(ran.stdout).toContain(`workstreams: ⚠️ ${DIRENV_LINE}`)
+    expect(ran.stdout).toContain('a gh login is absent')
+  })
+
+  it('says it too when the login check could not be checked', async () => {
+    const { env, dir } = project(file)
+
+    const ran = await run(
+      env,
+      { ...HEALTHY, 'gh auth token': { status: null, timedOut: true, signal: 'SIGKILL' } },
+      true,
+      nodeFileReads,
+      DEADLINE_MS,
+      dir,
+    )
+
+    expect(ran.stdout).toContain(DIRENV_LINE)
+  })
+
+  it('says it when the gh stack check could not be checked', async () => {
+    const { env, dir } = project(file)
+
+    const ran = await run(
+      env,
+      { ...HEALTHY, 'gh extension list': { status: 1 } },
+      true,
+      nodeFileReads,
+      DEADLINE_MS,
+      dir,
+    )
+
+    expect(ran.stdout).toContain(DIRENV_LINE)
+  })
+
+  it('stays silent about direnv when every gh check passes', async () => {
+    const { env, dir } = project(file)
+
+    const ran = await run(env, HEALTHY, true, nodeFileReads, DEADLINE_MS, dir)
+
+    expect(ran.stdout).toBe('')
+  })
+
+  it('stays silent about direnv when no .envrc is in the directory or above it', async () => {
+    const { env, dir } = project()
+
+    const ran = await run(env, NO_LOGIN, true, nodeFileReads, DEADLINE_MS, dir)
+
+    expect(ran.stdout).toContain('a gh login is absent')
+    expect(ran.stdout).not.toContain('direnv')
+  })
+
+  it('stays silent about direnv when DIRENV_DIR is set', async () => {
+    const { env, dir } = project(file)
+    env.DIRENV_DIR = '-/some/project'
+
+    const ran = await run(env, NO_LOGIN, true, nodeFileReads, DEADLINE_MS, dir)
+
+    expect(ran.stdout).not.toContain('direnv')
+  })
+
+  it('reads an empty DIRENV_DIR as not set', async () => {
+    const { env, dir } = project(file)
+    env.DIRENV_DIR = ''
+
+    const ran = await run(env, NO_LOGIN, true, nodeFileReads, DEADLINE_MS, dir)
+
+    expect(ran.stdout).toContain(DIRENV_LINE)
+  })
+
+  it('finds an .envrc in the working directory itself', async () => {
+    const { sandbox, env } = healthySandbox()
+    delete env.DIRENV_DIR
+    writeFileSync(sandbox.join('.envrc'), '')
+
+    const ran = await run(env, NO_LOGIN, true, nodeFileReads, DEADLINE_MS, sandbox.path)
+
+    expect(ran.stdout).toContain(DIRENV_LINE)
+  })
+
+  it('does not count a directory named .envrc', async () => {
+    const { env, dir } = project((envrc) => mkdirSync(envrc))
+
+    const ran = await run(env, NO_LOGIN, true, nodeFileReads, DEADLINE_MS, dir)
+
+    expect(ran.stdout).not.toContain('direnv')
+  })
+
+  it('says it could not look for an .envrc when the read does not finish in time', async () => {
+    const { env, dir } = project(file)
+    const never = (): Promise<never> => new Promise(() => {})
+    const files: FileReads = {
+      ...nodeFileReads,
+      kindOf: (target) => (target.endsWith('.envrc') ? never() : nodeFileReads.kindOf(target)),
+    }
+
+    const ran = await run(env, NO_LOGIN, true, files, 300, dir)
+
+    expect(ran.stdout).toContain(
+      'an .envrc above this directory could not be checked, so direnv may not be loaded',
+    )
+    expect(ran.stdout).not.toContain(DIRENV_LINE)
   })
 })

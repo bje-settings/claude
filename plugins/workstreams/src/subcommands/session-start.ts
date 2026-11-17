@@ -251,6 +251,21 @@ export interface SessionStartEdges {
   /** Whether this machine has `/proc`. The guard reads a process cwd
    *  there first, and asks `lsof` only when `/proc` is absent. */
   readonly procPresent: boolean
+  /** The working directory of the session. The `.envrc` walk starts here. */
+  readonly cwd: string
+}
+
+/** Whether a file named `.envrc` is in `start` or in a parent of it.
+ *  A directory named `.envrc` is not a match. */
+const envrcAbove = async (files: FileReads, start: string): Promise<boolean> => {
+  let directory = start
+  for (;;) {
+    const kind = await files.kindOf(path.join(directory, '.envrc')).catch(() => 'absent' as const)
+    if (kind === 'other') return true
+    const parent = path.dirname(directory)
+    if (parent === directory) return false
+    directory = parent
+  }
 }
 
 /** The dependency table row and whether it holds right now, together.
@@ -294,7 +309,7 @@ const reviewerRows = async (
  *  (`.claude/rules/_design-principles.md`). When everything is present,
  *  this writes nothing at all. */
 export const runSessionStart = async (edges: SessionStartEdges): Promise<number> => {
-  const { env, run, output, files, deadlineMs, procPresent } = edges
+  const { env, run, output, files, deadlineMs, procPresent, cwd } = edges
   // One clock for every step. A step that starts late gets only the time
   // that is left, so the whole check ends inside `deadlineMs`.
   const remaining = deadlineClock(deadlineMs)
@@ -384,6 +399,22 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
   const table: Dependency[] = rows.map(({ tool, label }) => ({ tool, label }))
   const presence = new Map(rows.map((row) => [row.tool, row.present]))
   const absent = absentDependencies(table, (tool) => presence.get(tool) as boolean)
+
+  // `gh` may have no login only because direnv did not load here. direnv
+  // sets `DIRENV_DIR` when it is loaded. So this adds one reason when a
+  // gh check did not pass, an `.envrc` is above the working directory,
+  // and `DIRENV_DIR` is unset or empty. It needs no direnv on `PATH`.
+  const ghCheckFailed = ghLogin !== true || ghStack === null
+  if (ghCheckFailed && (env.DIRENV_DIR === undefined || env.DIRENV_DIR === '')) {
+    const found = await withinDeadline(envrcAbove(files, cwd), remaining(), null)
+    if (found === null) {
+      problems.push(
+        'an .envrc above this directory could not be checked, so direnv may not be loaded',
+      )
+    } else if (found) {
+      problems.push('direnv is not loaded for this directory, so gh may have no login')
+    }
+  }
   const reasons = [...absent.map((dependency) => `${dependency.label} is absent`), ...problems]
 
   if (reasons.length === 0) return 0
