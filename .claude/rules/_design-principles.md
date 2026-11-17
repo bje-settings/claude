@@ -43,6 +43,11 @@ Signals of a god component. Each one is a reason to split it:
 - Hook when the action must always happen the same way and the agent need not reason about it.
   Hooks cost zero context unless they return output. Guardrails belong in `PreToolUse` hooks. An
   instruction in CLAUDE.md or a skill is a request, not enforcement.
+- A hook acts only on its own plugin's work. A `PreToolUse` hook fires on every tool call, in
+  every session that enables the plugin. It binds only the plugin's own agents (by
+  `agent_type`) or its own commands, and it allows everything else in silence. A plugin may call
+  the tools of other domains, but it never changes how those tools act for another plugin or for
+  the person.
 - Skill when Claude has to decide how to apply the steps, or the content is knowledge.
 - Subagent only for context isolation or parallel work. A subagent that must wait on something
   external waits in the foreground with a bounded blocking call. It returns once, with structured

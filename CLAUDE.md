@@ -57,6 +57,7 @@ Signals that a domain boundary is off:
 - A user who wants one skill would have to install several unrelated ones to get it.
 - A skill's description leads with a tool or system that no other skill in the plugin touches.
 - Two plugins would each want the same skill.
+- A hook denies or changes a tool call that no skill or agent of the plugin made.
 
 ### Skills
 
