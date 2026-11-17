@@ -258,7 +258,7 @@ export interface SessionStartEdges {
 /** Whether a file named `.envrc` is in `start` or in a parent of it, or
  *  `null` when a read failed for a reason other than "not there".
  *  A directory named `.envrc` is not a match. Only `ENOENT` and `ENOTDIR`
- *  mean "not there", as for the registry above. */
+ *  mean "not there". */
 const envrcInOrAbove = async (files: FileReads, start: string): Promise<boolean | null> => {
   let directory = start
   for (;;) {
@@ -336,8 +336,8 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
         : null,
   }))
   // The `.envrc` walk also starts now, on the full clock. A gh check that
-  // hangs spends the clock. A walk that started after it would then read
-  // as late, with no late read at all.
+  // hangs spends the clock. A walk that started after it would get no time.
+  // It would then give "could not be checked", with no slow read at all.
   const direnvUnset = env.DIRENV_DIR === undefined || env.DIRENV_DIR === ''
   const envrc = direnvUnset ? withinDeadline(envrcInOrAbove(files, cwd), remaining(), null) : null
   const [ghPresent, pgrepPresent, lsofPresent] = await Promise.all([
@@ -412,12 +412,12 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
   const absent = absentDependencies(table, (tool) => presence.get(tool) as boolean)
 
   // `gh` may have no login only because direnv did not load here. direnv
-  // sets `DIRENV_DIR` when it is loaded. So this adds one reason when the
-  // gh login check failed or could not answer, or the gh extension list
-  // could not be read, an `.envrc` is in or above the working directory,
-  // and `DIRENV_DIR` is unset or empty. It needs no direnv on `PATH`. An
-  // absent gh stack extension does not count: gh keeps its extensions
-  // outside `GH_CONFIG_DIR`.
+  // sets `DIRENV_DIR` when it is loaded. So this adds one reason when three
+  // things are true. The gh login check failed or could not answer, or the
+  // gh extension list could not be read. An `.envrc` is in or above the
+  // working directory. `DIRENV_DIR` is unset or empty. It needs no direnv
+  // on `PATH`. An absent gh stack extension does not count: gh keeps its
+  // extensions outside `GH_CONFIG_DIR`.
   const ghCheckFailed = ghLogin !== true || ghStack === null
   if (ghCheckFailed && envrc !== null) {
     const found = await envrc
