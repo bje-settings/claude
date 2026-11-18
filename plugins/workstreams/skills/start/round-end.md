@@ -52,8 +52,9 @@ gets the lines changed, and `not recorded` in each other cell. Estimate nothing.
 
 ## 4. Report, ask, act and record
 
-Stop the watch with `TaskStop`, if one runs. Then report to the person in these six
-parts, in this order:
+Stop the watch with `TaskStop`, if one runs. Then write the report to the person as a
+message, in these six parts, in this order. Write the whole report before you call
+`AskUserQuestion`. Do not put the report only in the question:
 
 1. **State.** Each pull request with its head and state. Then the merge sequence.
 2. **Decisions the model made.** Each mid-round ruling and each choice in place of a
@@ -70,12 +71,15 @@ Claude on the person's word. In each part, put the items with the same action to
 An item with no action is in no part. A fact for the record goes in the issue comment
 only. Write the items in ASD-STE100 Simplified Technical English.
 
-Then ask one `AskUserQuestion` with one question, `multiSelect: true`. Give one option for
-each of parts 2 to 5 that has an item. The label names the part and its actions. Examples:
-`Open the 4 new issues`, `Comment on #14 and #22; set #28 blocked by #17`. The
-description lists the items in short form, and says who does each action. Do not give an
-option for each item. When only one part has items, ask yes or no for that part. When no
-part has items, do not ask.
+After the report message, ask one `AskUserQuestion` with one question,
+`multiSelect: true`. The person may see only the dialog, so the question must stand
+alone. Give one option for each of parts 2 to 5 that has an item. The label names the
+part and its actions. Examples: `Open the 4 new issues`,
+`Comment on #14 and #22; set #28 blocked by #17`. The description lists each item in
+full, as in the report, and says who does each action. The part 2 description names each
+decision and how to reverse it, not only a count. Do not give an option for each item.
+When only one part has items, ask yes or no for that part, with its items in full in the
+question. When no part has items, do not ask.
 
 An action that only the person can do, such as a merge or a ruleset change, stays in the
 report. It is in no option, unless Claude can help with it.
