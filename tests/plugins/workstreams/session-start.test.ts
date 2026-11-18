@@ -127,8 +127,16 @@ it('ends inside its 3 s timeout, exits 0, and reports could not be checked, when
   }
   const registry = sandbox.join('installed_plugins.json')
   execFileSync('mkfifo', [registry])
+  // An `.envrc` above the hook's cwd, and no direnv loaded. The walk finds
+  // it in `project`, which is not above `HOME`, so only the real cwd finds
+  // it. The gh children spend the clock, and the walk must still answer
+  // (it starts with them, not after them).
+  const cwd = sandbox.join('project', 'src')
+  mkdirSync(cwd, { recursive: true })
+  writeFileSync(sandbox.join('project', '.envrc'), '')
+  const { DIRENV_DIR: _loaded, ...unloaded } = sandbox.env
   const env = {
-    ...sandbox.env,
+    ...unloaded,
     WORKSTREAMS_INSTALLED_PLUGINS: registry,
     CLAUDE_PLUGIN_ROOT: path.dirname(path.dirname(HOOK)),
   }
@@ -143,6 +151,7 @@ it('ends inside its 3 s timeout, exits 0, and reports could not be checked, when
   // kills only the shell: the node process under it can stay.
   const result = spawnSync('sh', ['-c', command], {
     env,
+    cwd,
     encoding: 'utf8',
     timeout: 10_000,
     killSignal: 'SIGKILL',
@@ -159,6 +168,7 @@ it('ends inside its 3 s timeout, exits 0, and reports could not be checked, when
       'workstreams: ⚠️ a gh login could not be checked',
       'workstreams: ⚠️ the gh stack extension could not be checked',
       'workstreams: ⚠️ the installed plugins file could not be read',
+      'workstreams: ⚠️ direnv is not loaded for this directory, so gh may have no login',
     ].join('\n'),
   )
 })

@@ -56,6 +56,7 @@ if (meetsNodeFloor(process.version)) {
       files: nodeFileReads,
       deadlineMs: DEADLINE_MS,
       procPresent: existsSync('/proc'),
+      cwd: process.cwd(),
     })
   } catch (error) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)

@@ -179,8 +179,11 @@ return can be checked against them one for one.
   note on a neighbouring file. Declare each one. A silent one is not allowed.
 - **A denied step is a stop.** A repository step that the permission check denies stops
   the layer before the dependent step. The return gives the exact command and the denial
-  text. The layer tries no other route or tool for the same change. Three denials in one
-  round: `gh stack submit`, a script that wrote a skill file, and an `allowed-tools` edit.
+  text. The layer tries no other route or tool for the same change. A refused `Edit` or
+  `Write` is a stop. Never write the same change with Bash, a heredoc, `sed`, Python or
+  any script. Edit files with `Edit` or `Write`, not with a shell or Python heredoc, also
+  when nothing was refused. Three denials in one round: `gh stack submit`, a script that
+  wrote a skill file, and an `allowed-tools` edit.
 - **After every push, check the run:**
 
   ```bash
