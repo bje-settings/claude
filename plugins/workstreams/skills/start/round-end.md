@@ -32,7 +32,9 @@ The open items, by the part of step 4 that holds them:
   (`botThreadAuthors` from `pr-state`), each plan issue still open after its pull request
   merged, and each dropped layer, with its issues. For each pull request with a
   `draftSkipped` list from `pr-state`, one item for the person: "mark ready, then these
-  checks run", with the list.
+  checks run", with the list. Each `.claude/worktrees/agent-<id>` worktree and
+  `worktree-agent-<id>` branch that an agent of the round left, from its completion
+  notification, for removal with `git worktree remove <path>` and `git branch -D <branch>`.
 
 ## 3. The cost
 

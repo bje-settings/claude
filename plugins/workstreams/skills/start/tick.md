@@ -45,8 +45,10 @@ On a collision:
 
 To rebase one stream onto the other, in a gap (no agent writes to either stream):
 
-1. `git -C <upper worktree> rebase <lower branch>`, then
-   `git -C <upper worktree> push --force-with-lease`.
+1. [Detach](#detach) each other kept worktree that holds a branch of either stream. Then
+   `git -C <upper worktree> rebase <lower branch> <upper branch>`, then
+   `git -C <upper worktree> push --force-with-lease`. `<upper worktree>` is the kept
+   worktree of the upper stream's last agent.
 2. `gh pr edit <upper PR> --base <lower branch>`, then
    `(cd <upper worktree> && gh stack link <lower PR> <upper PR>)`. The link puts both pull
    requests in one stack.
@@ -63,8 +65,8 @@ To rebase one stream onto the other, in a gap (no agent writes to either stream)
 | `merged` | Stop for this pull request. Report it. A layer that merges mid-round gets a report only, never a review. A merged layer is finished: step 3 of `SKILL.md` writes the next layer. |
 | `closed` | Closed with no merge. Report it, never a review. Read the `Mid-round ruling` comments on the layer's issues: `gh issue view <number> --json comments`. One about this layer is the answer: do not ask again. With no answer, ask one [question](#a-decision-mid-round), once: drop this layer and each layer above it from the round, reopen it, or replan. Record the answer on each of the layer's issues. Drop: the round can end, and the round end lists the dropped layers. Reopen: the person reopens it, and its state acts on the next wake. Replan: stop. |
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
-| `review-1`, `review-2`, `rot-check` | Nothing while an agent works on this pull request, the layer agent or a round agent. At `review-1` with `layerReturned: false`, dispatch no round, also in a new conversation: no layer agent's return was read. `/workstreams:stream` marks each return it reads. One exception is a pull request that no layer of the plan builds, such as a person's pull request. When this conversation dispatched no layer agent for it, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> layer` first. A `mark` that failed is a stop. For `pr <n>`, which has no plan, the question of `SKILL.md` Order step 2 decides, asked once. In any other case, report the pull request and its head once for each head. A status write wakes no watch. Tell the person that a lost return holds round 1, and that `mark <number> layer` releases it. CI can still run, or be red: the round reads it. Otherwise, in a stack, switch the worktree to this layer's branch first: `git -C <worktree> switch <branch>`. `intersect` names the worktree under the layer of the stack that has it checked out. Switch only when no agent works in it and its `clean` is `true`. A switch carries uncommitted work to the other branch. Then invoke `/workstreams:review` with the number. For `review-2`, also give it round 1's return. |
-| `fixing` | Nothing while a round agent works on this pull request: its return is the next wake. A person who resolves a thread is a wake too. With no agent at work and a `red` `verdict`, the agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise resume it with `SendMessage`. A pull request from a person, with no agent: report it, and stop. With a `pending` `verdict`, the watch names each check as it reports. With no agent at work, a `green` `verdict` and `botThreads` above 0, invoke `/workstreams:review` once for this head. It settles each mermaid preview thread, and names each other bot thread for the person. A second such wake on the same head is a stop. |
+| `review-1`, `review-2`, `rot-check` | Nothing while an agent works on this pull request, the layer agent or a round agent. At `review-1` with `layerReturned: false`, dispatch no round, also in a new conversation: no layer agent's return was read. `/workstreams:stream` marks each return it reads. One exception is a pull request that no layer of the plan builds, such as a person's pull request. When this conversation dispatched no layer agent for it, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> layer` first. A `mark` that failed is a stop. For `pr <n>`, which has no plan, the question of `SKILL.md` Order step 2 decides, asked once. In any other case, report the pull request and its head once for each head. A status write wakes no watch. Tell the person that a lost return holds round 1, and that `mark <number> layer` releases it. CI can still run, or be red: the round reads it. Otherwise, [detach](#detach) the kept worktree that holds this layer's branch, because the round agent takes the branch in a worktree of its own. Then invoke `/workstreams:review` with the number. For `review-2`, also give it round 1's return. |
+| `fixing` | Nothing while a round agent works on this pull request: its return is the next wake. A person who resolves a thread is a wake too. With no agent at work and a `red` `verdict`, the agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise resume it with `SendMessage`, by the rule for a resumed agent in [Detach](#detach). A pull request from a person, with no agent: report it, and stop. With a `pending` `verdict`, the watch names each check as it reports. With no agent at work, a `green` `verdict` and `botThreads` above 0, invoke `/workstreams:review` once for this head. It settles each mermaid preview thread, and names each other bot thread for the person. A second such wake on the same head is a stop. |
 | `done` | This layer is finished. Step 3 of `SKILL.md` writes the next layer. |
 
 Ten wakes on one state, with no agent at work on that pull request, is a stop. A watch
@@ -79,14 +81,18 @@ line about a check of its head that reports is not one of the ten. CI can still 
   records the round's status with `mark`.
 - **`lower_layer`, from either.** To apply it is a [decision](#a-decision-mid-round).
   Apply it to its layer only in a gap: no agent writes to that layer or to one above it.
-  Resume that layer's agent with `SendMessage`. Tell it to commit on its own branch, then
-  to run `(cd <worktree> && gh stack rebase --upstack)`, a full type check, and
-  `(cd <worktree> && gh stack push)`. `gh stack` acts on the current directory, so the
-  subshell is the only safe form (the stream brief, rule 12). This holds only when the
-  worktree's local tracking matches GitHub: in `(cd <worktree> && gh stack view)`, the
-  branch below each pull request is its `baseRefName` in `gh pr view <n> --json
-  baseRefName`. When one differs, as after a restack (step 3), rebase each branch above,
-  from the lowest up, with `git -C <worktree> rebase <branch below> <branch>`, and push it with
+  First [detach](#detach) every kept worktree that holds a branch of the stack: a rebase
+  refuses a branch that another worktree holds. Then resume that layer's agent with
+  `SendMessage`, in its own worktree. Tell it to run `git -C <worktree> switch <its
+  branch>` and commit there. Then `(cd <worktree> && gh stack unstack --local)` and
+  `(cd <worktree> && gh stack init <every layer branch, bottom first>)`, because its local
+  record holds no layer above it. Then `(cd <worktree> && gh stack rebase --upstack)`, a
+  full type check, and `(cd <worktree> && gh stack push)`. `gh stack` acts on the current
+  directory, so the subshell is the only safe form (the stream brief, rule 12). In
+  `(cd <worktree> && gh stack view)`, the branch below each pull request must be its
+  `baseRefName` in `gh pr view <n> --json baseRefName`. When one differs, as after a
+  restack (step 3), rebase each branch above, from the lowest up, with
+  `git -C <worktree> rebase <branch below> <branch>`, and push it with
   `git -C <worktree> push --force-with-lease`. Then check each head of the stack again.
   Outside a gap, keep the finding for the round-end report.
 
@@ -94,6 +100,27 @@ line about a check of its head that reports is not one of the ten. CI can still 
 
 Write one line for each pull request whose state changed, and the action you took. Name
 each ruling of this tick.
+
+## Detach
+
+Each agent works in a worktree of its own (`.claude/worktrees/agent-<id>`, on a
+`worktree-agent-<id>` branch). An agent with commits keeps its worktree, and that worktree
+holds the branch it built or reviewed. A branch can be checked out in one worktree only.
+So `git switch`, `git rebase` and `gh stack rebase` refuse a branch that a kept worktree
+holds. `intersect` names the worktree that holds each pull request's head branch. For each
+kept worktree that holds a branch to free:
+
+```bash
+git -C <worktree> switch --detach
+```
+
+Detach only an agent's worktree, under `.claude/worktrees/agent-`, when no agent works in
+it and its `clean` is `true`. A dirty one is a stop: name it. Any other worktree that holds
+the branch, such as a person's, is a stop too.
+
+A resumed agent whose worktree is now detached takes its branch back before it commits.
+Detach any other worktree that holds the branch. Then tell the agent to run
+`git -C <worktree> switch <its branch>` first.
 
 ## A decision mid-round
 

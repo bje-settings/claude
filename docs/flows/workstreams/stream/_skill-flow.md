@@ -4,7 +4,7 @@ description: What the /workstreams:stream skill does in one step, and every way 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-13
+  at: 2026-11-16
 ---
 
 # /workstreams:stream skill flow
@@ -27,17 +27,20 @@ flowchart TD
     SM -->|No| SM1([Stop: name it for the caller, with its own words]):::stop
     SM -->|Yes| S1([Report: pull request, head, its run, CI state at return,<br/>and the five fields; the review can start at once;<br/>the caller's tick step 2 is next])
 
-    R -->|No| D{worktree for the stream exists?}
-    D -->|No| D1[Create it once, from the planned tip;<br/>install from the lock file there] --> E
-    D -->|Yes| E[Write this layer's brief from the template into a file,<br/>with the lessons of the review below]
+    R -->|No| E[Write this layer's brief from the template into a file,<br/>with the lessons of the review below; it names the base branch<br/>and the install, never a worktree path]
     E --> F{does the repository contradict the brief?}
     F -->|Yes| F1[Correct the brief; the repository wins] --> E
     F -->|No| G{any placeholder left in it?}
     G -->|Yes| G1[Fill it; a placeholder is a layer that will guess] --> E
-    G -->|No| H([Dispatch ONE sized agent for this layer, then return;<br/>its return goes to the caller])
+    G -->|No| H([Dispatch ONE sized agent for this layer, isolated in a worktree<br/>of its own and with no name, then return; its return goes to the caller])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
+
+Claude Code makes each agent's worktree from the default branch. The layer agent fetches each
+lower branch, switches to a new branch on the remote lower branch, installs, and adopts the
+whole chain with `gh stack init`. It cannot write to the root checkout or to another worktree,
+so the caller checks the root.
 
 Until the `layer` status exists, `pr-state` gives `layerReturned: false`, and no review round
 starts (#396). The status goes on the head of the return, never on a later head.

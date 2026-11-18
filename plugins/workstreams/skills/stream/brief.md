@@ -1,6 +1,7 @@
 # The layer agent's brief
 
-Fill every `<...>` in. Delete a section a layer has no use for. Do not leave it empty. A
+Fill every `<...>` in, except `<worktree>`: the layer agent reads that path itself, in its
+own worktree. Delete a section a layer has no use for. Do not leave it empty. A
 brief with a placeholder left in it is a layer that will guess.
 
 Write it to a file, and point the dispatch prompt at the file. The prompt repeats only the
@@ -15,25 +16,33 @@ watching you.
 
 ## Where you work
 
-- Repository root, never edited: `<absolute path>`
-- Worktree, named by absolute path in every command, never `cd` (rule 12 names the two
-  exceptions): `<absolute path>`
-  It has `<lower branch>` checked out at `<sha>`.
-- The install is done: `<the package manager's install, and uv sync --locked if there is a
-  uv.lock>`. `<Say so when the repository installs git hooks: an install can write into the
-  clone's shared .git/hooks and leave a file behind when a later revision stops configuring
-  it.>`
+- Your worktree: Claude Code made it for you, from the default branch, and you start in
+  it. `git rev-parse --show-toplevel` prints its path. Call that path `<worktree>`, and
+  name it by absolute path in every command. Never `cd` (rule 12 names the two
+  exceptions).
+- You cannot write to the root checkout or another worktree, or run git in the root
+  checkout. Claude Code refuses it. The caller checks the root checkout.
+- Your base: `<lower branch>` at `<sha>`.
 - Keep your notes in your return. A file is optional, never required.
 
 `gh stack` has no `-C` flag, and acts on the current directory. Run it only as
 `(cd <worktree> && gh stack ...)`. Your first commands, in this order:
 
-1. `git -C <root> rev-parse --abbrev-ref HEAD`. Note the root checkout's branch.
-2. `(cd <worktree> && gh stack <init, for the bottom layer, or add, for an upper layer>
-   <your branch>)`. It makes your branch, and puts it in the stack.
-3. `git -C <root> rev-parse --abbrev-ref HEAD` again. If the root's branch moved, stop
-   and return. Do not move it back. Name both branches in your return.
-4. `git -C <worktree> rev-parse --abbrev-ref HEAD` prints `<your branch>`.
+1. `git -C <worktree> fetch origin`. `<For an upper layer, add: then, for each lower layer
+   branch, bottom first, git -C <worktree> fetch origin <branch>:<branch>. That brings the
+   local branch up to its remote head. git refuses a move that is not a fast-forward, and a
+   branch that another worktree holds.>` A refusal is a stop: return it, with git's text.
+2. `<For an upper layer, add: git -C <worktree> rev-parse origin/<lower branch> prints
+   <sha>. If not, stop and return.>` Then
+   `git -C <worktree> switch -c <your branch> origin/<lower branch>`.
+3. `<the package manager's install, and uv sync --locked if there is a uv.lock>`, in
+   `<worktree>`. `<Say so when the repository installs git hooks: an install can write into
+   the clone's shared .git/hooks and leave a file behind when a later revision stops
+   configuring it.>`
+4. `(cd <worktree> && gh stack init <each layer branch from the bottom, up to your branch,
+   with it>)`. `gh stack` keeps its record for each worktree. So a new
+   worktree adopts the whole chain before its first stack command.
+5. `git -C <worktree> rev-parse --abbrev-ref HEAD` prints `<your branch>`.
 
 ## Your pull request
 
@@ -202,7 +211,7 @@ All of the following:
   you return: the caller checks it with `pr-state`.
 - No unresolved review thread from a person. A bot's own thread does not count.
 - `<the local gates of rule 7, by command>` green.
-- The worktree on your branch, and the root checkout, both clean.
+- Your worktree on your branch, and clean.
 - `<each lower branch>` still at `<its sha>`.
 
 ## Return

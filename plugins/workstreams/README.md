@@ -117,6 +117,12 @@ request's state and runs one `intersect`. It checks each new head, and looks for
 collision. Then it takes the next action for each state. `review` and `stream` each take
 one step for each call and never wait. Only `start` waits.
 
+Each layer agent and each review round agent works in a worktree of its own (#263). A
+branch can be checked out in one worktree only. So `start` runs `git switch --detach` in
+each clean kept worktree that holds a branch. It does this before a review round takes that
+branch, before the next layer, and before a stack rebase. A dirty kept worktree is a stop.
+The round end lists each `agent-*` worktree and `worktree-agent-*` branch for removal.
+
 The round end starts when every layer is `done`, merged or dropped, and no layer is left.
 It is in `skills/start/round-end.md`. The report comes before any question. It has six
 parts, from the state and the merge sequence to the cost. Each item in parts 2 to 5 has
@@ -214,8 +220,10 @@ Takes one draft pull request from its first workflow run to `done`, whoever open
 
 The command answers where the loop is. The skill takes the one step that the state calls
 for, and returns. It dispatches a round, reopens for an absent run, does the rot check, or
-reports. It never waits. The loop runs at most two review rounds, one subagent
-each, in the pull request's own worktree. Round 2 runs in two cases only: round 1's own
+reports. It never waits. The loop runs at most two review rounds, one `workstreams:round`
+agent each. The round agent takes the pull request's branch in a worktree of its own, after
+`start` detaches the kept worktree that holds it. A worktree that still holds the branch is
+a stop. Round 2 runs in two cases only: round 1's own
 commits changed code logic, or logic landed after the head that round 1 reviewed (#356).
 
 | State | What it means |
@@ -259,13 +267,16 @@ It is `user-invocable: false`. `/workstreams:start` invokes it, one step for eac
 
 ## `/workstreams:stream`
 
-Builds one issue, or one stack of them, in one worktree.
+Builds one issue, or one stack of them.
 
-One stream is one worktree, with one branch and one agent per layer, in sequence. The
-lower layer is reviewed to `done` before the team writes the next layer. A review fix on
-the lower branch rewrites every branch above it, so nothing may write there at that
-moment. The upper layer is then written once, against the names the lower layer's review
-settled.
+One stream is one branch and one agent per layer, in sequence. Each layer agent works in a
+worktree of its own, which Claude Code makes from the default branch. The agent fetches each
+lower branch, and runs `git switch -c <layer> origin/<lower>`. Then it installs, and adopts
+the whole chain with `gh stack init`: `gh stack` keeps its record for each worktree. It
+cannot write to the root checkout, so the caller checks the root. The lower layer is
+reviewed to `done` before the team writes the next layer. A review fix on the lower branch
+rewrites every branch above it, so nothing may write there at that moment. The upper layer
+is then written once, against the names the lower layer's review settled.
 
 The brief is a file, not a prompt. `skills/stream/brief.md` is the template. It holds:
 
@@ -281,9 +292,7 @@ The dispatch prompt points at the file. It repeats only the lines most often got
 `gh stack` has no `-C` flag, so the brief allows it in one form only,
 `(cd <worktree> && gh stack ...)`. The one other `cd` is for the layer's real exercise only
 (#374). It is a subshell into a directory under the session's scratchpad:
-`(cd <scratchpad dir> && <command>)`. The layer's first `gh stack` command is `init` for the
-bottom layer, or `add` for an upper one. The layer reads the root checkout's branch before
-and after it, and stops if the root moved. When `gh stack submit` fails because stacks are
+`(cd <scratchpad dir> && <command>)`. When `gh stack submit` fails because stacks are
 not enabled, the layer pushes with `git push` and opens a draft with `gh pr create --draft`.
 A layer that joins a GitHub stack its worktree did not initialise uses `gh stack link` (#383,
 #366). A permission check can refuse either one. A denied repository step stops the layer
@@ -320,21 +329,30 @@ It is `user-invocable: false`. `/workstreams:start` invokes it once a plan is ap
 
 ### The agent
 
-`agents/stream.md` sets no `effort` and no `model`. The caller passes the model per call.
-The caller cannot pass effort ([sub-agents](https://code.claude.com/docs/en/sub-agents)),
-so the agent inherits the dispatching session's effort. A layer sized at a different
-effort waits for the session to change it (#197, after #99).
+The plugin has two agents. `agents/stream.md` (`workstreams:stream`) builds a layer.
+`agents/round.md` (`workstreams:round`) runs a review round. Neither sets `effort` or
+`model`. The caller passes the model per call. The caller cannot pass effort
+([sub-agents](https://code.claude.com/docs/en/sub-agents)), so the agent inherits the
+dispatching session's effort. A layer sized at a different effort waits for the session to
+change it (#197, after #99).
+
+Both set `isolation: worktree`, and each dispatch passes `isolation: "worktree"` too, with
+no `name`. With agent teams on, a named spawn starts a teammate that ignores the
+frontmatter `isolation`, and only `isolation` on the call holds (#276). Claude Code makes
+the worktree at `.claude/worktrees/agent-<id>`, on branch `worktree-agent-<id>`, from the
+default branch. It refuses the agent's writes to the root checkout and to other worktrees
+([worktrees](https://code.claude.com/docs/en/worktrees#how-claude-code-enforces-isolation)).
+It removes a worktree with no changes when the agent returns, and keeps one with commits.
 
 A plugin subagent ignores the `hooks`, `mcpServers`, and `permissionMode` frontmatter
 fields
 ([sub-agents](https://code.claude.com/docs/en/sub-agents#choose-the-subagent-scope)).
-Nothing else can ride in this file. The guard below is a plugin hook rather than a line
-in it.
+The guard below is a plugin hook rather than a line in an agent file.
 
 ### The guard hook
 
 `hooks/hooks.json` registers one `PreToolUse` hook on `Bash|PowerShell`. It refuses three
-things, and only for a subagent:
+things, and only for this plugin's two agents, `workstreams:stream` and `workstreams:round`:
 
 | Refused | Why |
 | --- | --- |
@@ -392,12 +410,20 @@ resolves the links in that directory the same way. If it cannot resolve a direct
 compares the joined path. It does not expand `~` or `$VAR`. With no payload `cwd`, it
 cannot check a relative directory. It allows the command and writes a line on stderr.
 
-**The main conversation is never denied.** The test is `agent_id`. The input carries this
-field "only when the hook fires inside a subagent"
-([hooks](https://code.claude.com/docs/en/hooks#common-input-fields)). The refusal names
-`agent_type`, so a reader knows which worker was stopped. The guard never matches on it:
-matching it would bind only the agent above, and leave every reviewer and round agent
-that gets the same rules unguarded.
+**It binds only this plugin's agents (#263).** A hook acts only on its own plugin's work
+(`.claude/rules/_design-principles.md`, Mechanisms). So the guard binds a call only when the
+input has an `agent_id` and an `agent_type` of `workstreams:stream` or `workstreams:round`
+([hooks](https://code.claude.com/docs/en/hooks#common-input-fields)). A plugin agent
+reports its plugin-scoped name. The guard allows each other call in silence:
+
+- the main conversation;
+- a session started with `--agent`, which has an `agent_type` and no `agent_id`;
+- each agent of another plugin or of Claude Code, such as `general-purpose` or
+  `shepherd:shepherd-prs`.
+
+The reviewers that a round agent dispatches are not this plugin's
+agents, so the guard does not bind them. Their rules are in the round brief. The refusal
+names `agent_type`, so a reader knows which worker was stopped.
 
 An allow writes nothing at all, so the permission rules the user configured still decide
 the call. A refusal is a `permissionDecision` of `deny` on stdout. That is the documented
@@ -413,8 +439,7 @@ is also a guardrail rather than a security boundary. It reads the command as tex
 one commit, and never costs anyone their work.
 
 A third thing it cannot see is whether a reviewer agent still runs. So the rule that a
-subagent must not edit while one reads stays a brief line here. #263 gives each reviewer
-its own worktree, and that is what can enforce it.
+subagent must not edit while one reads stays a brief line.
 
 Anything it cannot read is one line on stderr, and an allow. It never fails a session.
 
@@ -450,8 +475,8 @@ The skill records every ruling in one comment, on each issue in the round and ea
 touches. It then enters plan mode itself and writes the plan. `ExitPlanMode` is the approval,
 not a hand-back. `skills/stream/brief.md` is the template the plan feeds, so the plan
 answers what that template needs. Each layer in the plan fits one agent's budget. The
-plan splits a layer that does not fit into more layers, never into slices by hand. The stream
-has one worktree until #263 (#380). Once approved, the plan comment goes on every issue in
+plan splits a layer that does not fit into more layers, never into slices by hand. Each agent
+has a worktree of its own (#263). Once approved, the plan comment goes on every issue in
 the round. Housekeeping then runs before the first worktree. It asks the person nothing.
 It fast-forwards the default branch. A dirty or diverged default branch is a stop, and the
 skill names the cause. It removes any ignored leftover under `plugins/`. It applies the

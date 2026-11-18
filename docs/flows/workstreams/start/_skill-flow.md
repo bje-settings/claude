@@ -4,7 +4,7 @@ description: What the /workstreams:start skill does on each call and each wake, 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-11-02
+  at: 2026-11-16
 ---
 
 # /workstreams:start skill flow
@@ -58,7 +58,7 @@ flowchart TD
     AO -->|No| E[Derive the round: plan, pull requests and stack order;<br/>pr-state reads the review statuses;<br/>a merged pull request is final]
     E --> R
     F{a layer to write, and no layer below,<br/>or pr-state gives done or merged for it?}
-    F -->|Yes| G[Invoke /workstreams:stream for the next layer]
+    F -->|Yes| G[Detach each clean kept worktree that holds a branch of the stack;<br/>invoke /workstreams:stream for the next layer]
     F -->|No, the layer below closed with no merge| NC
     F -->|No, another state: its tick row acts| W
     G --> W{a wake can come?<br/>an agent at work, or the watch can run}
@@ -109,7 +109,7 @@ flowchart TD
     N -->|review-1 with any CI verdict,<br/>review-2, rot-check| N7{an agent at work on it,<br/>the layer agent or a round agent?}
     N7 -->|Yes| X
     N7 -->|No| NL{review-1, and layerReturned false?}
-    NL -->|No| N6[Switch the clean worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
+    NL -->|No| N6[Detach the clean kept worktree that holds the layer's branch,<br/>so the round agent can take it in its own worktree;<br/>invoke /workstreams:review] --> X
     NL -->|Yes, in a planned round: no layer agent from this<br/>conversation, and the plan names no branch for it| NLM{a layer status written<br/>on its head?}
     NLM -->|Yes| N6
     NLM -->|No| NLS([Stop: name it]):::stop
@@ -142,6 +142,13 @@ flowchart TD
 A layer's return goes to `/workstreams:stream` to read. A round agent's return goes to
 `/workstreams:review`, which records the round's status with `mark`. A `lower_layer` finding goes into its layer only in a gap. In a gap, no agent writes to that
 layer or above it. Otherwise the finding waits for the round-end report.
+
+Each agent works in a worktree of its own. A branch can be checked out in one worktree only.
+So `start` detaches each agent's kept worktree that holds a branch before another agent needs
+it. It does this before a review round, before the next layer, and before a stack rebase. A
+dirty kept worktree is a stop, and so is a holder that is no agent's. A resumed agent takes
+its branch back first. The round end lists each `agent-*` worktree and `worktree-agent-*`
+branch for removal.
 
 A layer agent returns after its push and the run check, with CI still able to run. `pr-state`
 gives `review-1` while CI runs. `/workstreams:stream` marks the return with a `layer` status,

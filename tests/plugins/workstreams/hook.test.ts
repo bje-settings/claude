@@ -126,6 +126,24 @@ it('says nothing at all when the main conversation asks for the same thing', () 
   expect(result.stderr).toBe('')
 })
 
+it('says nothing when an agent of another plugin asks for the same thing (#263)', () => {
+  const sandbox = createSandbox()
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'general-purpose',
+      cwd: sandbox.path,
+      tool_input: { command: 'pnpm test', run_in_background: true },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe('')
+})
+
 it('denies a subagent git checkout with a pathspec on a tree holding uncommitted work', () => {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
@@ -218,6 +236,7 @@ it('allows a tool that is not a shell, whatever the matcher lets through', () =>
   const result = runScript(HOOK, {
     stdin: payload({
       agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
       tool_name: 'Write',
       tool_input: { file_path: '/tmp/x', content: 'git restore .' },
     }),
@@ -257,6 +276,7 @@ it('allows, and says so on stderr, where git cannot report the tree', () => {
   const result = runScript(HOOK, {
     stdin: payload({
       agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
       cwd: sandbox.path,
       tool_input: { command: 'git restore .' },
     }),
@@ -278,6 +298,7 @@ it('allows in silence with no git on PATH at all', () => {
   const result = runScript(HOOK, {
     stdin: payload({
       agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
       cwd: work,
       tool_input: { command: 'git restore .' },
     }),
@@ -736,10 +757,11 @@ it('runs the hook entry with node, behind the silent guard, on both shell tools'
   // The description is what a user reads in the plugin listing, and it is
   // still true of what the hook does.
   expect(config.description).toBe(
-    'Refuses three things to subagents only: a background command, a git command that would ' +
+    'Refuses three things to the workstreams agents only (workstreams:stream and ' +
+      'workstreams:round): a background command, a git command that would ' +
       'overwrite uncommitted work in a tracked file (git restore, git checkout with a pathspec ' +
       'written with or without a --, and git checkout or git switch carrying a force, patch or ' +
       '--pathspec-from-file option), and a vitest or pnpm test run while one already runs in ' +
-      'the same worktree. The main conversation is never denied.',
+      'the same worktree. The main conversation and every other agent are never denied.',
   )
 })

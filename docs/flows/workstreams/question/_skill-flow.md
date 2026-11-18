@@ -4,7 +4,7 @@ description: What the /workstreams:question skill does, and every way it decline
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-11-12
+  at: 2026-11-16
 ---
 
 # /workstreams:question skill flow
@@ -43,7 +43,7 @@ flowchart TD
     FL -->|Yes| FW[Wait for the Explore result] --> D
     FL -->|No| I[Rulings comment on every issue in the round<br/>and any issue a ruling touches]
 
-    I --> J[EnterPlanMode: write the plan;<br/>each layer fits one agent's budget, else split into more layers;<br/>one worktree for the stream]
+    I --> J[EnterPlanMode: write the plan;<br/>each layer fits one agent's budget, else split into more layers;<br/>one worktree for each agent]
     J --> K{ExitPlanMode: approved?}
     K -->|No| J
     K -->|Yes| KR{rounds --all --issues: a round in flight now holds one of the issues,<br/>unavailable is not empty, or the command fails?}
