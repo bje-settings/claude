@@ -105,9 +105,10 @@ Derive it on each call. Write nothing to disk.
 ## Order
 
 1. A round in flight: go on at step 3. No round, or a new round: invoke
-   `/workstreams:sweep` with the scope. With no scope, also give it the issues of each
-   round in `rounds` and in `others`, to leave out. Together they are the rounds that
-   `rounds --all` names. If it stops, stop.
+   `/workstreams:sweep` with the scope. For free words, also give it the ordered list and
+   the target size. With no scope, also give it the issues of each round in `rounds` and
+   in `others`, to leave out. Together they are the rounds that `rounds --all` names. If it
+   stops, stop.
    Then invoke `/workstreams:question` with the same scope, or after a walk, with the
    issues the sweep kept. Its plan mode is the approval.
    With no approved plan, stop.

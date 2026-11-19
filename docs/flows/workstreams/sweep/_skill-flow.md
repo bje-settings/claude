@@ -22,11 +22,11 @@ flowchart TD
     E -->|No| F
     E1 --> F{anything unblocked?}
     F -->|No| F1([Stop: name the blocked issues]):::stop
-    F -->|Yes| W[Walk the unblocked issues: the caller's order<br/>if it gave one, else every one]
+    F -->|Yes| H[Read the Decisions lists in docs/rfc and docs/adr, once]
+    H --> W[Walk the unblocked issues: the caller's order<br/>if it gave one, else every one]
     W --> G[Read the body and every comment<br/>of the next issue the walk reaches]
 
-    G --> H[Read the Decisions lists in docs/rfc and docs/adr]
-    H --> I{a decision no issue body carries?}
+    G --> I{a decision no issue body carries?}
     I -->|Yes| I1[Add it to the round, or record it as a blocker]
     I -->|No| FX
     I1 --> FX{a fix issue whose defect no longer happens?}
@@ -36,11 +36,11 @@ flowchart TD
     J --> K{claim cited to a line just read?}
     K -->|No| K1[Grep for it; a remembered claim is not a claim]
     K1 --> J
-    K -->|Yes| PO{an open pull request edits its files, carries code<br/>it needs, or has an incomplete file list?}
-    PO -->|Yes| PO1[Pass it over: defer it, name the pull request<br/>and the overlap; never stack on it]
+    K -->|Yes| PO{an open pull request edits its files, carries code<br/>it needs, or has an incomplete file list,<br/>whatever the issue's files?}
+    PO -->|Yes| PO1[Pass it over: defer it, name the pull request,<br/>the reason and the overlap; never stack on it]
     PO -->|No| KP[Keep it]
     PO1 --> WE
-    KP --> WE{target size reached,<br/>or the list at its end?}
+    KP --> WE{target number kept,<br/>or the list at its end?}
     WE -->|No| G
     WE -->|Yes, none kept| WS([Stop: set size, and how many<br/>passed over for each reason]):::stop
     WE -->|Yes| L[Classify, size, and estimate the review;<br/>an issue the caller leaves out is deferred, with its round]
