@@ -257,7 +257,8 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
       `node "${expansion}/scripts/hook-io.ts" session-start; exit 0`,
   ])
   // The path in the command is the file the other tests run. `; exit 0` hides
-  // a missing file, so only this check shows a stale path (#528).
+  // a missing file. The literal above catches a changed path. This check
+  // catches a literal and a `hooks.json` that are wrong together (#528).
   const quoted = /node "([^"]+)"/.exec(entries[0]?.hooks[0]?.command ?? '')?.[1] ?? ''
   expect(path.join(path.dirname(HOOKS_JSON), '..', quoted.replace(expansion, ''))).toBe(
     path.normalize(HOOK),
