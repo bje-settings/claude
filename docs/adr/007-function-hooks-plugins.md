@@ -90,9 +90,9 @@ module (#528). That check refuses a `.ts` import suffix (TS5097) and node global
 8. **A node adapter beside a hooks module (2026-11-19, #528).** In a plugin with a hooks module,
    a node adapter goes in `scripts/`, not `hooks/`. Claude Code 2.1.323 and later type-check
    every code file under `hooks/` as a hooks module, and a node adapter fails that check. The
-   relative imports of a hooks module end in `.js`. The engine check refuses a `.ts` suffix, and
-   `tsconfig.hooks.json` (`nodenext`) refuses an import with no suffix (TS2835). A `.js` import
-   loads in `claude plugin test` on 2.1.319 and 2.1.328.
+   relative imports of a hooks module take no suffix, because the engine check refuses a `.ts`
+   suffix. `tsconfig.hooks.json` sets `"moduleResolution": "bundler"`, so `tsc` accepts them.
+   An import with no suffix loads in `claude plugin test` on 2.1.319 and 2.1.328.
 
 A hooks module does not follow these rules:
 
@@ -103,8 +103,8 @@ A hooks module does not follow these rules:
 - The output fields in `.claude/rules/path-hooks.md`. A module speaks through `$.ui.toast`,
   `$.ui.log`, `$.ui.status` and `$.session.append`.
 - "run directly by node on a 22.18 floor" (`CLAUDE.md`, "Plugin marketplace"). The engine runs the module, and it may be `.tsx`.
-- The `.ts` suffix on each import (`.claude/rules/type-ts.md`, "Language level"). Its imports
-  end in `.js` (ruling 8).
+- The `.ts` suffix on each import (`.claude/rules/type-ts.md`, "Language level"). Its relative
+  imports take no suffix (ruling 8).
 
 ## Consequences
 

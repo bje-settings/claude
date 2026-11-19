@@ -24,9 +24,11 @@
 // `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
 //
-// The relative imports below end in `.js`, though the sources are `.ts`.
-// Claude Code 2.1.323 and later type-check a hooks module, and refuse a `.ts`
-// suffix (ADR 007, ruling 8). Do not change them to `.ts`.
+// The relative imports below take no suffix. On 2.1.323 and later,
+// `claude plugin validate` type-checks a hooks module with its own options,
+// and ignores the plugin tsconfig. It refuses a `.ts` suffix (TS5097).
+// `tsconfig.hooks.json` resolves as bundler, so no suffix also passes `tsc`
+// (ADR 007, ruling 8). Do not add a suffix.
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 import {
   DENY_REASON,
@@ -37,7 +39,7 @@ import {
   typesKey,
   typesOf,
   untypedCreates,
-} from '../src/issue-create.js'
+} from '../src/issue-create'
 import {
   changesCounts,
   failureText,
@@ -48,7 +50,7 @@ import {
   RUN_TIMEOUT_MS,
   SEGMENT_COLOUR,
   segmentsOf,
-} from '../src/status-pin.js'
+} from '../src/status-pin'
 
 /** What one session of this module keeps between hooks. */
 interface Pin {

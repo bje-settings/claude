@@ -8,7 +8,7 @@
     "target": "es2023",
     "lib": ["es2023"],
     // nodenext on both, with explicit `.ts` on every import in a node file (a
-    // hooks module uses `.js`, ADR 007 ruling 8). That is what
+    // hooks module uses no suffix, ADR 007 ruling 8). That is what
     // node's own resolver reads when it strips the types. Any other pairing
     // would let `tsc` accept an import node refuses at launch.
     "module": "nodenext",

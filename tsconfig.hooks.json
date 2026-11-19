@@ -11,6 +11,10 @@
   // `exclude`, which would hide every file that this config includes.
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    // The engine bundles a hooks module, so this resolves as the engine
+    // does. A relative import then takes no suffix (ADR 007, ruling 8).
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "jsx": "react",
     "jsxFactory": "h",
     "jsxFragmentFactory": "Fragment",
