@@ -292,6 +292,9 @@ describe('the sweep, replayed against the captured tracker', () => {
     const set = (numbers: readonly number[]) => numbers.map((number) => `#${number}`).join(', ')
     expect(lines).toContain(`  unblocked: ${set(report.combined.unblocked)}`)
     expect(lines).toContain(`  blocked: ${set(report.combined.blocked)}`)
+    expect(ascending(report.combined.unblocked)).toEqual(
+      ascending([4, 7, null].flatMap((milestone) => expectedFromCapture(milestone).unblocked)),
+    )
     expect(ascending(report.combined.blocked)).toEqual(
       ascending([4, 7, null].flatMap((milestone) => expectedFromCapture(milestone).blocked)),
     )
