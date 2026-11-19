@@ -133,7 +133,7 @@ rather than compile them, and rejects all three at launch with
 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. `erasableSyntaxOnly` in `tsconfig.json` turns that into a
 failed gate on a pull request instead. Every import in a node file names the `.ts` extension
 explicitly, which is what node's own resolver reads. A hooks module runs in the engine, and its
-imports end in `.js` (ADR 007, ruling 8).
+relative imports end in `.js` (ADR 007, ruling 8).
 
 ## Coverage
 

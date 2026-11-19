@@ -20,8 +20,8 @@ that a hooks module does not follow.
 
 A function-hooks plugin has one hooks module. `hooks/hooks.json` names it under `modules`, and it
 exports `register(on, options)`. The Claude Code engine runs it. The module has "no DOM and no
-Node". Every file it imports from the plugin ends in `.ts`, `.tsx` or a similar suffix
-(`plugin-authoring` skill, `reference.md`).
+Node". The `plugin-authoring` skill (`reference.md`) says every file it imports from the plugin
+ends in `.ts`, `.tsx` or a similar suffix. Claude Code 2.1.323 and later refuse `.ts` (ruling 8).
 
 Spike #392 ran two such modules against the gates of this repository. Five rules broke:
 

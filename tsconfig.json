@@ -7,7 +7,8 @@
     // release supports rather than the newest the compiler knows.
     "target": "es2023",
     "lib": ["es2023"],
-    // nodenext on both, with explicit `.ts` on every import. That is what
+    // nodenext on both, with explicit `.ts` on every import in a node file (a
+    // hooks module uses `.js`, ADR 007 ruling 8). That is what
     // node's own resolver reads when it strips the types. Any other pairing
     // would let `tsc` accept an import node refuses at launch.
     "module": "nodenext",
@@ -50,9 +51,10 @@
   //
   // `plugins/*/hooks` holds the command hooks, which are plain `.ts`. In a
   // plugin with a hooks module, the command hook is in `plugins/*/scripts`
-  // (ADR 007, ruling 8). A hooks module (`register.*`, `.tsx`) and its `*.test.tsx` tests need
-  // JSX and the `claude-code` types, so `tsconfig.hooks.json` checks them
-  // and the `exclude` below keeps them out of this check (ADR 007).
+  // (ADR 007, ruling 8). A hooks module (`register.*`, `.tsx`) and its
+  // `*.test.tsx` tests need JSX and the `claude-code` types, so
+  // `tsconfig.hooks.json` checks them and the `exclude` below keeps them out
+  // of this check (ADR 007).
   "include": [
     "tests",
     "harness",

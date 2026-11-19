@@ -23,8 +23,10 @@
 // `src/issue-create.ts`, which vitest measures. A helper that takes `$` is a
 // `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
-// Its imports end in `.js`. Claude Code 2.1.323 and later type-check a
-// hooks module, and refuse a `.ts` suffix (#528).
+//
+// The relative imports below end in `.js`, though the sources are `.ts`.
+// Claude Code 2.1.323 and later type-check a hooks module, and refuse a `.ts`
+// suffix (ADR 007, ruling 8). Do not change them to `.ts`.
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 import {
   DENY_REASON,

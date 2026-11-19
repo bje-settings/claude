@@ -27,8 +27,8 @@ Plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules
 has the rules. Each dispatcher subcommand is an exported function, the command function. It
 lives at `plugins/<plugin>/src/subcommands/<command>.ts`, behind one thin dispatcher at
 `plugins/<plugin>/scripts/<plugin>.ts`. A command hook goes at `plugins/<plugin>/hooks/*.ts`. In
-a plugin with a hooks module, it goes in `scripts/` (ADR 007, ruling 8). Code
-shared between plugins lives in the root `lib/`. Each plugin holds copies of the `lib/` files it
+a plugin with a hooks module, it goes in `scripts/`, as a second entry point (ADR 007, ruling 8).
+Code shared between plugins lives in the root `lib/`. Each plugin holds copies of the `lib/` files it
 imports in `plugins/<plugin>/src/lib/`. Edit `lib/`, then run `node scripts/sync-lib.ts`. No
 import leaves a plugin.
 
