@@ -58,8 +58,8 @@ size (step 1, the walk).
    commented on.
 
    Read the decision records for the scope once, before the walk's first issue: every file
-   under `docs/rfc/` and `docs/adr/`, and the Decisions lists in particular. [file-map.md](file-map.md) has the
-   check against what has merged.
+   under `docs/rfc/` and `docs/adr/`, and the Decisions lists in particular.
+   [file-map.md](file-map.md) has the check against what has merged.
 
    Every factual claim you are about to write down gets cited to a line you have just read.
    Grep for it; do not recall it.
