@@ -7,10 +7,12 @@
     // release supports rather than the newest the compiler knows.
     "target": "es2023",
     "lib": ["es2023"],
-    // nodenext on both, with explicit `.ts` on every import in a node file (a
-    // hooks module uses no suffix, ADR 007 ruling 8). That is what
-    // node's own resolver reads when it strips the types. Any other pairing
-    // would let `tsc` accept an import node refuses at launch.
+    // nodenext on both, with explicit `.ts` on every import in a node file.
+    // That is what node's own resolver reads when it strips the types. Any
+    // other pairing would let `tsc` accept an import node refuses at launch.
+    // `tsconfig.hooks.json` is the one exception: the engine, not node, runs
+    // a hooks module, and its relative imports take no suffix (ADR 007,
+    // ruling 8).
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "allowImportingTsExtensions": true,

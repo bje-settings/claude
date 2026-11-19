@@ -21,7 +21,8 @@ that a hooks module does not follow.
 A function-hooks plugin has one hooks module. `hooks/hooks.json` names it under `modules`, and it
 exports `register(on, options)`. The Claude Code engine runs it. The module has "no DOM and no
 Node". The `plugin-authoring` skill (`reference.md`) says every file it imports from the plugin
-ends in `.ts`, `.tsx` or a similar suffix. Claude Code 2.1.323 and later refuse `.ts` (ruling 8).
+ends in `.ts`, `.tsx` or a similar suffix. Claude Code 2.1.323 and later refuse a `.ts` import
+suffix (ruling 8).
 
 Spike #392 ran two such modules against the gates of this repository. Five rules broke:
 
@@ -50,9 +51,9 @@ are in the root `include` (`tsconfig.json`). A change to the root config must ke
 in the `types` job.
 
 Claude Code 2.1.323 and later type-check each code file under `hooks/` when `hooks.json` names a
-module (#528). That check refuses a `.ts` import suffix (TS5097) and node globals such as
-`process`. A tsconfig in the plugin does not change it. 2.1.322 and earlier check only
-`hooks.json`.
+module (#528). That check gives an error for a `.ts` import suffix (TS5097), and for node globals
+such as `process` (TS2591). A tsconfig in the plugin does not change it. 2.1.322 and earlier
+check only `hooks.json`.
 
 ## Decision
 
@@ -70,7 +71,8 @@ module (#528). That check refuses a `.ts` import suffix (TS5097) and node global
 4. **Types.** The root `tsconfig.json` keeps `plugins/*/hooks`, so the node adapters stay
    type-checked. It excludes `plugins/*/hooks/register.*` and the hooks-module tests, because
    the root `include` has `tests` (`tsconfig.json:54`). A second file, `tsconfig.hooks.json`,
-   sets `jsx: "react"`, `jsxFactory: "h"` and `jsxFragmentFactory: "Fragment"`. It covers
+   sets `jsx: "react"`, `jsxFactory: "h"` and `jsxFragmentFactory: "Fragment"`, and
+   `module: "esnext"` with `moduleResolution: "bundler"` (ruling 8). It covers
    `plugins/*/hooks/register.*`, those tests, `plugins/*/types` and a committed copy of the engine
    declarations in `types/claude-code/`. A test in `tests/repo/` checks that the first line of
    that copy names the version in `CLAUDE_CODE_VERSION`. The `types` job runs both configs.
@@ -91,7 +93,8 @@ module (#528). That check refuses a `.ts` import suffix (TS5097) and node global
    a node adapter goes in `scripts/`, not `hooks/`. Claude Code 2.1.323 and later type-check
    every code file under `hooks/` as a hooks module, and a node adapter fails that check. The
    relative imports of a hooks module take no suffix, because the engine check refuses a `.ts`
-   suffix. `tsconfig.hooks.json` sets `"moduleResolution": "bundler"`, so `tsc` accepts them.
+   suffix. `tsconfig.hooks.json` sets `"module": "esnext"` and `"moduleResolution": "bundler"`,
+   so `tsc` accepts them.
    An import with no suffix loads in `claude plugin test` on 2.1.319 and 2.1.328.
 
 A hooks module does not follow these rules:
