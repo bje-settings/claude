@@ -142,13 +142,19 @@ export interface IssueSummary {
   readonly pullRequests: readonly IssueRef[]
 }
 
-/** One open pull request, with the two refs a sweep needs to see a stack. */
+/** One open pull request, with the two refs a sweep needs to see a stack,
+ *  and the files it changes, so a sweep can see an overlap with an issue. */
 export interface PullRequestSummary {
   readonly number: number
   readonly title: string
   readonly head: string
   readonly base: string
   readonly draft: boolean
+  /** The paths of the changed files, at most the first 100. */
+  readonly files: readonly string[]
+  /** False when the pull request changes more files than `files` holds, or
+   *  when GitHub gave no file list. A caller then reads the list as short. */
+  readonly filesComplete: boolean
 }
 
 /** One comment's first line, when it was made, and who made it. A round
@@ -1672,11 +1678,20 @@ const buildPlanIssueQuery = (numbers: readonly number[]): string => {
   return `query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n${fields.join('\n')}\n  }\n}`
 }
 
+/**
+ * Every open pull request's head and base, and the first 100 files it
+ * changes. `files.pageInfo.hasNextPage` tells a complete list from the
+ * first page of a longer one. A page of 100 pull requests with 100 files
+ * each is 10,000 nodes, far below GitHub's limit of 500,000.
+ */
 const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, first: ${SWEEP_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
       pageInfo { hasNextPage endCursor }
-      nodes { number title isDraft headRefName baseRefName }
+      nodes {
+        number title isDraft headRefName baseRefName
+        files(first: ${SWEEP_PAGE}) { pageInfo { hasNextPage } nodes { path } }
+      }
     }
   }
 }`
@@ -2012,8 +2027,11 @@ const readIssue = (node: unknown): IssueSummary | null => {
   return { number, title, milestone, labels, blockedBy, blocking, pullRequests }
 }
 
-/** One pull request node, or null when it is not the shape asked for. */
-const readPullRequest = (node: unknown): PullRequestSummary | null => {
+/** The fields every pull request row shares, or null when the node is not
+ *  the shape asked for. */
+const readPullRequestRefs = (
+  node: unknown,
+): Omit<PullRequestSummary, 'files' | 'filesComplete'> | null => {
   const record = asRecord(node)
   const number = asInteger(record?.number)
   const title = asText(record?.title)
@@ -2023,6 +2041,34 @@ const readPullRequest = (node: unknown): PullRequestSummary | null => {
   if (number === null || title === null || head === null || base === null) return null
   if (typeof draft !== 'boolean') return null
   return { number, title, head, base, draft }
+}
+
+/**
+ * A pull request's `files` connection as paths, or null when it is not the
+ * shape asked for. GitHub can answer `files: null`. That is an empty,
+ * incomplete list, not a bad row: the pull request stays in the report,
+ * and a caller reads it as a possible overlap.
+ */
+const readFiles = (value: unknown): Pick<PullRequestSummary, 'files' | 'filesComplete'> | null => {
+  if (value === null) return { files: [], filesComplete: false }
+  const nodes = nodesOf(value)
+  const more = asRecord(asRecord(value)?.pageInfo)?.hasNextPage
+  if (nodes === null || typeof more !== 'boolean') return null
+  const files: string[] = []
+  for (const entry of nodes) {
+    const path = asText(asRecord(entry)?.path)
+    if (path === null) return null
+    files.push(path)
+  }
+  return { files, filesComplete: !more }
+}
+
+/** One pull request node, or null when it is not the shape asked for. */
+const readPullRequest = (node: unknown): PullRequestSummary | null => {
+  const refs = readPullRequestRefs(node)
+  const files = readFiles(asRecord(node)?.files)
+  if (refs === null || files === null) return null
+  return { ...refs, ...files }
 }
 
 /**
@@ -2047,7 +2093,7 @@ const readRollup = (rollup: unknown): CheckContext[] | null => {
 /** One pull request head node, or null when it is not the shape asked for. */
 const readPullRequestHead = (node: unknown): PullRequestHead | null => {
   const record = asRecord(node)
-  const summary = readPullRequest(node)
+  const summary = readPullRequestRefs(node)
   const headSha = asText(record?.headRefOid)
   const crossRepository = record?.isCrossRepository
   if (summary === null || headSha === null) return null

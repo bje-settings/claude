@@ -115,7 +115,15 @@ it('answers every endpoint it declares', async () => {
     },
     listOpenPullRequests: {
       rows: [
-        { number: 177, title: 'audit L2', head: 'wktr-171-audit-split', base: 'main', draft: true },
+        {
+          number: 177,
+          title: 'audit L2',
+          head: 'wktr-171-audit-split',
+          base: 'main',
+          draft: true,
+          files: ['plugins/audit/README.md'],
+          filesComplete: true,
+        },
       ],
       unavailable: null,
     },

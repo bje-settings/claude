@@ -138,7 +138,9 @@ reaches step 3 and cannot ask.
    and give its order: merge the layer below, retarget this layer onto the branch it
    merged into, then CI runs.
 
-   Note any open pull request of another effort that shares files with the round.
+   An open pull request of another effort can share files with the round. Apply the
+   pass-over rule of `/workstreams:sweep`, step 1. Name the pull request, and never stack a
+   layer on it.
 
 9. Report each frontier round, with what it asked and what the person answered. Report each
    ruling you took instead of a question, and why. Report the rulings comment, the plan
