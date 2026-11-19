@@ -256,6 +256,12 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
       `printf '{"systemMessage":"\\\\ngh: ⚠️ node not found on PATH"}\\n'; exit 0; fi; ` +
       `node "${expansion}/scripts/hook-io.ts" session-start; exit 0`,
   ])
+  // The path in the command is the file the other tests run. `; exit 0` hides
+  // a missing file, so only this check shows a stale path (#528).
+  const quoted = /node "([^"]+)"/.exec(entries[0]?.hooks[0]?.command ?? '')?.[1] ?? ''
+  expect(path.join(path.dirname(HOOKS_JSON), '..', quoted.replace(expansion, ''))).toBe(
+    path.normalize(HOOK),
+  )
   // Well under the hook's own 3 s ceiling (`.claude/rules/_design-principles.md`).
   expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([3])
   // The hooks module draws the status row (#488, #496, ADR 007 ruling 7).
