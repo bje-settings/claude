@@ -4,7 +4,10 @@ description: A function-hooks plugin keeps its hooks module in hooks/register.ts
 status: stable
 created: 2026-11-07
 owner: brianespinosa
-related_issues: [392, 400, 401, 488]
+related_issues: [392, 400, 401, 488, 528]
+generated:
+  by: claude-opus
+  at: 2026-11-19
 ---
 
 # ADR 007: Function-hooks plugins in this marketplace
@@ -40,10 +43,16 @@ ship test files to each user. A module with only type imports loads under node, 
 to call. A `.tsx` file may import a `src/lib/` copy, if `scripts/sync-lib.ts` reads `.tsx` files
 too.
 
-Four node adapters sit in `plugins/*/hooks/` today: `plugins/gh/hooks/hook-io.ts`,
-`plugins/shepherd/hooks/session-start.ts`, `plugins/workstreams/hooks/guard.ts` and
-`plugins/workstreams/hooks/session-start.ts`. `plugins/*/hooks` is in the root `include`
-(`tsconfig.json:60`). A change to the root config must keep these four in the `types` job.
+Three node adapters sit in `plugins/*/hooks/` today: `plugins/shepherd/hooks/session-start.ts`,
+`plugins/workstreams/hooks/guard.ts` and `plugins/workstreams/hooks/session-start.ts`. The gh
+adapter is `plugins/gh/scripts/hook-io.ts` (ruling 8). `plugins/*/hooks` and `plugins/*/scripts`
+are in the root `include` (`tsconfig.json`). A change to the root config must keep the adapters
+in the `types` job.
+
+Claude Code 2.1.323 and later type-check each code file under `hooks/` when `hooks.json` names a
+module (#528). That check refuses a `.ts` import suffix (TS5097) and node globals such as
+`process`. A tsconfig in the plugin does not change it. 2.1.322 and earlier check only
+`hooks.json`.
 
 ## Decision
 
@@ -58,7 +67,7 @@ Four node adapters sit in `plugins/*/hooks/` today: `plugins/gh/hooks/hook-io.ts
    script copies the plugin and those tests to a temporary folder. It runs `claude plugin test`
    there and exits with the status of that run. These tests are named `*.test.tsx`. Vitest
    collects only `tests/**/*.test.ts` (`vitest.config.ts:44`), so it does not load them.
-4. **Types.** The root `tsconfig.json` keeps `plugins/*/hooks`, so the four node adapters stay
+4. **Types.** The root `tsconfig.json` keeps `plugins/*/hooks`, so the node adapters stay
    type-checked. It excludes `plugins/*/hooks/register.*` and the hooks-module tests, because
    the root `include` has `tests` (`tsconfig.json:54`). A second file, `tsconfig.hooks.json`,
    sets `jsx: "react"`, `jsxFactory: "h"` and `jsxFragmentFactory: "Fragment"`. It covers
@@ -78,6 +87,12 @@ Four node adapters sit in `plugins/*/hooks/` today: `plugins/gh/hooks/hook-io.ts
    (`.claude/rules/_design-principles.md`, "Dependencies outside a plugin"). The command hook
    does only that check. The hooks module does the other work. A plugin with only a hooks module
    does its dependency check in a `session.start` function hook.
+8. **A node adapter beside a hooks module (2026-11-19, #528).** In a plugin with a hooks module,
+   a node adapter goes in `scripts/`, not `hooks/`. Claude Code 2.1.323 and later type-check
+   every code file under `hooks/` as a hooks module, and a node adapter fails that check. The
+   relative imports of a hooks module end in `.js`. The engine check refuses a `.ts` suffix, and
+   `tsconfig.hooks.json` (`nodenext`) refuses an import with no suffix (TS2835). A `.js` import
+   loads in `claude plugin test` on 2.1.319 and 2.1.328.
 
 A hooks module does not follow these rules:
 
@@ -88,6 +103,8 @@ A hooks module does not follow these rules:
 - The output fields in `.claude/rules/path-hooks.md`. A module speaks through `$.ui.toast`,
   `$.ui.log`, `$.ui.status` and `$.session.append`.
 - "run directly by node on a 22.18 floor" (`CLAUDE.md`, "Plugin marketplace"). The engine runs the module, and it may be `.tsx`.
+- The `.ts` suffix on each import (`.claude/rules/type-ts.md`, "Language level"). Its imports
+  end in `.js` (ruling 8).
 
 ## Consequences
 

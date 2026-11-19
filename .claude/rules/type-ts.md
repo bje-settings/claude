@@ -131,8 +131,9 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
 Erasable syntax only: no `enum`, no parameter properties, no namespaces. Node strips types,
 rather than compile them, and rejects all three at launch with
 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. `erasableSyntaxOnly` in `tsconfig.json` turns that into a
-failed gate on a pull request instead. Every import names the `.ts` extension explicitly, which
-is what node's own resolver reads.
+failed gate on a pull request instead. Every import in a node file names the `.ts` extension
+explicitly, which is what node's own resolver reads. A hooks module runs in the engine, and its
+imports end in `.js` (ADR 007, ruling 8).
 
 ## Coverage
 
