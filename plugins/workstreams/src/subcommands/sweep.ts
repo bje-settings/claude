@@ -28,7 +28,8 @@ Usage:
   workstreams.ts sweep [--milestone 4,5 | --issues 12,13] [--json]
 
 Reports the repository's open milestones with their issue counts, every open
-pull request including ones no round opened, and, for each milestone asked
+pull request including ones no round opened, with the first 100 files it
+changes and whether that list is complete, and, for each milestone asked
 for plus the issues on no milestone at all:
 
   unblocked   every blockedBy entry closed, or none at all. Carries
@@ -140,6 +141,8 @@ export interface Group {
 
 export interface SweepReport {
   readonly milestones: readonly MilestoneSummary[]
+  /** Each open pull request with its `files` and `filesComplete`, so the
+   *  skill can pass over an issue that overlaps one. */
   readonly pullRequests: readonly PullRequestSummary[]
   readonly groups: readonly Group[]
   readonly unassigned: Group
@@ -288,11 +291,14 @@ export const renderReport = (report: SweepReport): string => {
     )
   }
 
+  // A person sees only how many files each pull request changes. The skill
+  // reads the paths from `--json`.
   lines.push('', `open pull requests (${report.pullRequests.length})`)
   for (const pull of report.pullRequests) {
+    const files = `files: ${pull.files.length}${pull.filesComplete ? '' : ' (incomplete)'}`
     lines.push(
       `  #${pull.number}  ${pull.head} -> ${pull.base}  ` +
-        `${pull.draft ? 'draft' : 'ready'}  ${pull.title}`,
+        `${pull.draft ? 'draft' : 'ready'}  ${files}  ${pull.title}`,
     )
   }
 

@@ -1142,6 +1142,10 @@ describe('milestones, issues and pull requests', () => {
     isDraft: true,
     headRefName: 'wktr-171-audit-split',
     baseRefName: 'main',
+    files: {
+      pageInfo: { hasNextPage: false },
+      nodes: [{ path: 'plugins/audit/README.md' }, { path: 'lib/markdown.ts' }],
+    },
   }
 
   it('asks for the open milestones with owner and name as variables, and no cursor on the first page', async () => {
@@ -1228,12 +1232,15 @@ describe('milestones, issues and pull requests', () => {
     expect(result.rows[0]?.milestone).toBeNull()
   })
 
-  it('asks for every open pull request with its head and base', async () => {
+  it('asks for every open pull request with its head, its base and its files', async () => {
     const { gh, calls } = clientAnsweringEach([REPO, page('pullRequests', [pullNode])])
 
     const result = await gh.listOpenPullRequests()
 
     expect(calls[1]?.args[7]).toContain('pullRequests(states: OPEN, first: 100, after: $cursor')
+    expect(calls[1]?.args[7]).toContain(
+      'files(first: 100) { pageInfo { hasNextPage } nodes { path } }',
+    )
     expect(result).toEqual({
       rows: [
         {
@@ -1242,10 +1249,57 @@ describe('milestones, issues and pull requests', () => {
           head: 'wktr-171-audit-split',
           base: 'main',
           draft: true,
+          files: ['plugins/audit/README.md', 'lib/markdown.ts'],
+          filesComplete: true,
         },
       ],
       unavailable: null,
     })
+  })
+
+  it('reads a file list with a next page as incomplete', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('pullRequests', [
+        { ...pullNode, files: { pageInfo: { hasNextPage: true }, nodes: [{ path: 'a.ts' }] } },
+      ]),
+    ])
+
+    const result = await gh.listOpenPullRequests()
+
+    expect(result.rows[0]).toMatchObject({ files: ['a.ts'], filesComplete: false })
+    expect(result.unavailable).toBeNull()
+  })
+
+  it('keeps a pull request whose file list GitHub answered as null, and reads the list as incomplete', async () => {
+    // `files` is nullable in the schema. A null list says nothing about
+    // overlap, so the row stays, and a caller reads it as a possible one.
+    const { gh } = clientAnsweringEach([REPO, page('pullRequests', [{ ...pullNode, files: null }])])
+
+    const result = await gh.listOpenPullRequests()
+
+    expect(result.rows[0]).toMatchObject({ files: [], filesComplete: false })
+    expect(result.unavailable).toBeNull()
+  })
+
+  it('counts a pull request row whose file list is not the shape the query asked for', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('pullRequests', [
+        { ...pullNode, files: undefined },
+        { ...pullNode, files: { pageInfo: { hasNextPage: false }, nodes: null } },
+        { ...pullNode, files: { pageInfo: { hasNextPage: 'no' }, nodes: [] } },
+        { ...pullNode, files: { nodes: [] } },
+        { ...pullNode, files: { pageInfo: { hasNextPage: false }, nodes: [{ path: 7 }] } },
+        { ...pullNode, files: { pageInfo: { hasNextPage: false }, nodes: [null] } },
+        pullNode,
+      ]),
+    ])
+
+    const result = await gh.listOpenPullRequests()
+
+    expect(result.rows.map((row) => row.number)).toEqual([177])
+    expect(result.unavailable).toBe('6 pullRequests row(s) could not be read')
   })
 
   it('follows the cursor to the next page and concatenates the rows', async () => {
