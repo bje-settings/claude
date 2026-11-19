@@ -48,8 +48,9 @@
   // `scripts` entry above is a different directory: this repository's own
   // tooling.
   //
-  // `plugins/*/hooks` holds the command hooks, which are plain `.ts`. A
-  // hooks module (`register.*`, `.tsx`) and its `*.test.tsx` tests need
+  // `plugins/*/hooks` holds the command hooks, which are plain `.ts`. In a
+  // plugin with a hooks module, the command hook is in `plugins/*/scripts`
+  // (ADR 007, ruling 8). A hooks module (`register.*`, `.tsx`) and its `*.test.tsx` tests need
   // JSX and the `claude-code` types, so `tsconfig.hooks.json` checks them
   // and the `exclude` below keeps them out of this check (ADR 007).
   "include": [
