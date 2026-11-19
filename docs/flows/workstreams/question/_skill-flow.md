@@ -65,7 +65,7 @@ flowchart TD
     W{an upper layer's base that no<br/>pull_request CI filter matches?}
     W -->|No, or a GitHub stack runs it| P
     W -->|Yes| W1[Comment on each issue: name the layer;<br/>merge the layer below, retarget, then CI runs] --> P
-    P[Name each open pull request of another effort that shares files:<br/>the sweep's pass-over rule; never stack a layer on it]
+    P[An open pull request of another effort shares files:<br/>apply the sweep's pass-over rule, name it, never stack on it]
 
     P --> Q([Report: what each frontier round asked and answered,<br/>the rulings, the two comments, housekeeping])
 

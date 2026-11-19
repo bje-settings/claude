@@ -384,8 +384,8 @@ These are the sweep's three reads (#130). `listMilestones` reads the open milest
 open and closed issue counts. `listIssues` reads open issues, with their labels, their `blockedBy`
 and `blocking` relationships, and the pull requests that would close them. `listOpenPullRequests`
 reads every open pull request, with its head and base. It also reads `files`, the first 100
-paths the pull request changes, and `filesComplete`, false when more exist or when GitHub gives
-no list. A `files` connection of the wrong shape makes the row unreadable. Each answers `{ rows, unavailable }`, the
+paths the pull request changes, and `filesComplete`. That flag is false when more exist, or when
+GitHub gives no list. A `files` connection of the wrong shape makes the row unreadable. Each answers `{ rows, unavailable }`, the
 {@link PagedResult} shape `issueStates` established, and none of them throws. A sweep asks about
 several milestones at once, and one page that could not be read must not cost every other answer.
 

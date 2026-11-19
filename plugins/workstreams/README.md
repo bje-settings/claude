@@ -54,7 +54,7 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 | --- | --- |
 | `/workstreams:start milestone 4` (an example milestone; a bare `4` works too) | The sweep and the question phase, if the round has no plan yet. Then a layer at a time, each reviewed to `done`, then the round end. |
 | `/workstreams:start issues 12 13` (example issues) | The same, for those issues alone. |
-| `/workstreams:start any LSP related issue` (an example focus) | `start` resolves the words to the full issue list with `gh issue list`. It filters with key words, `--label` or `--type`. An empty set is a stop. It ranks the set by the person's criterion and shows it. Then it runs the `issues` scope, and gives the sweep the ordered list and a target size: 3 to 5, or the number the person gave. |
+| `/workstreams:start any LSP related issue` (an example focus) | `start` resolves the words to the full issue list with `gh issue list`. It filters with key words, `--label` or `--type`. An empty set is a stop. It ranks the set by the person's criterion and shows it. Then it runs the `issues` scope. The sweep gets the ordered list and a target size: 3 to 5, or the number the person gave. |
 | `/workstreams:start` | The same, over every milestone with open issues. With a round in flight, it asks first: continue that round, or start a new one. |
 | `/workstreams:start pr 260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
 
@@ -201,7 +201,7 @@ round just released. A blocked issue carries no reason, and no blocker list. The
 does not read, map, size, or comment on it.
 
 The skill does the reading. It reads every issue body and every comment, for the
-unblocked set alone. It reads the Decisions lists in `docs/rfc/` and `docs/adr/` against
+unblocked issues that its walk reaches. It reads the Decisions lists in `docs/rfc/` and `docs/adr/` against
 what has merged. It maps the files each issue touches. It classifies and sizes each
 issue. It chooses between parallel streams, a stack, and one pull request. A shared
 version line, or separate sections of one README, is not a collision. Small issues of one
@@ -209,14 +209,15 @@ plugin and one kind fold into one stream, because each pull request costs a revi
 It posts the sequencing comment on every issue in the round. `skills/sweep/` carries the
 rules. `file-map.md` holds the mapping rules a file map must apply.
 
-The command gives the files of each open pull request. The skill passes over an issue
-when an open pull request edits a file the issue would touch, or carries code it needs.
-A file list that is not complete is a possible overlap. A passed-over issue is deferred,
+The command gives the files of each open pull request. An open pull request can edit a
+file an issue would touch, or carry code the issue needs. Then the skill passes the
+issue over. A file list that is not complete is a possible overlap, so it passes the
+issue over too. A passed-over issue is deferred,
 not blocked, and the report names its pull request and the overlap. No layer stacks on a
 pull request the round does not own.
 
 With an ordered list and a target size from `start`, the sweep walks the list in that
-order. It reads, maps and checks each issue it reaches, and stops at the target or at the
+order. It reads, maps and checks each issue it reaches. It stops at the target or at the
 end of the list. A stop gives the size of the set and how many issues it passed over for
 each reason.
 
@@ -914,8 +915,7 @@ pnpm exec vitest run tests/plugins/workstreams   # this plugin alone
 ```
 
 `tests/plugins/workstreams/fixtures/sweep-capture-2026-11.json` holds every child process the real `gh`
-client started while it answered the sweep's reads against `bje-settings/claude`, on
-2026-11-18. The acceptance case replays it through the real client. It asserts the sets
+client started for the sweep's reads against `bje-settings/claude`, on 2026-11-18. The acceptance case replays it through the real client. It asserts the sets
 that the capture's own `blockedBy` edges give, not a list that a person wrote.
 
 `tests/plugins/workstreams/hook.test.ts` starts `hooks/guard.ts` as its own process, the way `hooks.json` does.

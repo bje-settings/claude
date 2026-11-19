@@ -27,10 +27,11 @@ out: each one is in another round.
    a branch someone else is about to merge collides on files the sweep cannot see.
 
    **Pass over.** Each pull request carries `files`, the paths it changes, and
-   `filesComplete`. Pass an issue over, and do not plan it, when an open pull request edits
-   a file the issue would touch. Do the same when the pull request carries code the issue
-   depends on. This applies to every open pull request, also the viewer's. When
-   `filesComplete` is false, the list is short. Read it as a possible overlap, and name it.
+   `filesComplete`. Pass an issue over when an open pull request edits a file the issue
+   would touch. Do the same when the pull request carries code the issue depends on. Do not
+   plan an issue you pass over. This applies to every open pull request, also the viewer's.
+   When `filesComplete` is false, the list is short: a possible overlap. Pass the issue
+   over, and name the short list as the overlap.
 
    Never stack a layer on a pull request the round does not own. Name each issue passed
    over, the pull request, and the overlap. Continue with the rest. If none remain, stop and
