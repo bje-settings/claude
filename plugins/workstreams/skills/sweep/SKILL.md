@@ -26,10 +26,26 @@ out: each one is in another round.
    If `pullRequests` is not empty, name each one before you go on. A round planned around
    a branch someone else is about to merge collides on files the sweep cannot see.
 
+   **Pass over.** Each pull request carries `files`, the paths it changes, and
+   `filesComplete`. Pass an issue over, and do not plan it, when an open pull request edits
+   a file the issue would touch. Do the same when the pull request carries code the issue
+   depends on. This applies to every open pull request, also the viewer's. When
+   `filesComplete` is false, the list is short. Read it as a possible overlap, and name it.
+
+   Never stack a layer on a pull request the round does not own. Name each issue passed
+   over, the pull request, and the overlap. Continue with the rest. If none remain, stop and
+   say so. Give the size of the set and how many issues you passed over for each reason.
+
+   **The walk.** The caller can give an ordered list of issues and a target size. Then take
+   the unblocked issues in the caller's order, not in the order of the report. Do steps 2
+   and 3 for each issue, then keep it or pass it over. Stop at the target size, 3 to 5 if
+   the caller gives none, or at the end of the list. With no ordered list, the walk reaches
+   every unblocked issue.
+
    If nothing is unblocked, stop. Name the blocked issues (`blocked`) and how many there are.
 
-2. Read, do not remember. For every issue in the unblocked set, read the full body **and
-   every comment**. A findings comment is often the specification; the body is often out
+2. Read, do not remember. For every unblocked issue that the walk reaches, read the full
+   body **and every comment**. A findings comment is often the specification; the body is often out
    of date. Leave the blocked set alone: nothing there is read, mapped, sized, or
    commented on.
 
@@ -50,7 +66,8 @@ out: each one is in another round.
    - **Classification**: work now, defer with a reason, blocked on another issue, or
      already fixed, with the commit ([file-map.md](file-map.md)). An issue the caller
      leaves out is deferred, with its round as the reason. Do not read, map, size or
-     comment on it.
+     comment on it. An issue passed over (step 1) is deferred too. Its reason names the
+     pull request and the overlap. It is not blocked: step 2 leaves the blocked set alone.
    - **Touched files and regions**, from step 3. Include files it may touch in comments
      only.
    - **Size**: the build model and the review model per layer, and the session effort the
@@ -90,9 +107,11 @@ out: each one is in another round.
    _Recorded by `workstreams:sweep` <date>._
    ```
 
-7. Report four things:
+7. Report five things:
 
    1. The unblocked set, with what each issue is.
    2. The stream shape, with the argument for it.
    3. What the round unlocks once it lands, from each issue's own `unlocks`.
    4. How many issues are blocked, and their numbers.
+   5. Each issue passed over, with its pull request and overlap. Give the size of the set
+      and how many issues you passed over for each reason.

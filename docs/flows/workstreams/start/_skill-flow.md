@@ -3,8 +3,8 @@ type: Reference
 description: What the /workstreams:start skill does on each call and each wake, and every way it stops.
 stale_after: 2027-03-27
 generated:
-  by: claude-opus
-  at: 2026-11-16
+  by: claude-opus-5-5
+  at: 2026-11-19
 ---
 
 # /workstreams:start skill flow
@@ -14,10 +14,11 @@ What `/workstreams:start` does to a round or to one pull request, and every way 
 ```mermaid
 flowchart TD
     A0[Read the argument: milestone, issues, pr, free words, or none;<br/>judge other words and a bare number that names no milestone;<br/>ask if two readings stay] --> A
-    A{argument?} -->|free words| FW[Resolve them to an issue list with gh issue list:<br/>key words, label or issue type; show the set]
+    A{argument?} -->|free words| FW[Resolve them to the full issue list with gh issue list:<br/>key words, label or issue type]
     FW --> FW1{set empty?}
     FW1 -->|Yes| FW2([Stop: no issue matches]):::stop
-    FW1 -->|No| B
+    FW1 -->|No| FW3[Rank the set by the person's criterion; show it.<br/>The sweep walks the ordered list to the target size, 3 to 5 by default]
+    FW3 --> B
     A -->|pr n| P1[That pull request is the whole round]
     P1 --> P0{its state: merged or closed?}
     P0 -->|Yes| P0a([Stop: report the state]):::stop

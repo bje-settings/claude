@@ -54,7 +54,7 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 | --- | --- |
 | `/workstreams:start milestone 4` (an example milestone; a bare `4` works too) | The sweep and the question phase, if the round has no plan yet. Then a layer at a time, each reviewed to `done`, then the round end. |
 | `/workstreams:start issues 12 13` (example issues) | The same, for those issues alone. |
-| `/workstreams:start any LSP related issue` (an example focus) | `start` resolves the words to an issue list with `gh issue list`. It filters with key words, `--label` or `--type`, and shows the set. Then it runs the `issues` scope on that set. An empty set is a stop. |
+| `/workstreams:start any LSP related issue` (an example focus) | `start` resolves the words to the full issue list with `gh issue list`. It filters with key words, `--label` or `--type`. An empty set is a stop. It ranks the set by the person's criterion and shows it. Then it runs the `issues` scope, and gives the sweep the ordered list and a target size: 3 to 5, or the number the person gave. |
 | `/workstreams:start` | The same, over every milestone with open issues. With a round in flight, it asks first: continue that round, or start a new one. |
 | `/workstreams:start pr 260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
 
@@ -208,6 +208,17 @@ version line, or separate sections of one README, is not a collision. Small issu
 plugin and one kind fold into one stream, because each pull request costs a review loop.
 It posts the sequencing comment on every issue in the round. `skills/sweep/` carries the
 rules. `file-map.md` holds the mapping rules a file map must apply.
+
+The command gives the files of each open pull request. The skill passes over an issue
+when an open pull request edits a file the issue would touch, or carries code it needs.
+A file list that is not complete is a possible overlap. A passed-over issue is deferred,
+not blocked, and the report names its pull request and the overlap. No layer stacks on a
+pull request the round does not own.
+
+With an ordered list and a target size from `start`, the sweep walks the list in that
+order. It reads, maps and checks each issue it reaches, and stops at the target or at the
+end of the list. A stop gives the size of the set and how many issues it passed over for
+each reason.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it when a round has no plan
 yet, with a milestone, issue numbers, or no scope. With no scope, `start` also names the
@@ -506,7 +517,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep [--milestone 4,5 | --i
 
 Reports the open milestones with their issue counts, every open pull request, including
 ones no round opened, and, for each milestone asked for plus the issues on no milestone
-at all, the two sets. `--milestone` takes one number or a comma-separated list. It is
+at all, the two sets. Each pull request carries `files`, the first 100 paths it changes,
+and `filesComplete`. `filesComplete` is false when it changes more files, or when GitHub
+gave no file list. The text report gives the count only, as `files: N` or
+`files: N (incomplete)`. `--milestone` takes one number or a comma-separated list. It is
 refused if given twice, because `parseArgs` would otherwise keep only the last one, and
 say nothing. Left out, the report covers every open milestone, plus any other milestone
 the issues name, so an open issue left on a closed milestone is still reported.
@@ -899,11 +913,10 @@ pnpm test                                        # the whole TypeScript suite, w
 pnpm exec vitest run tests/plugins/workstreams   # this plugin alone
 ```
 
-`tests/plugins/workstreams/fixtures/sweep-capture.json` holds every child process the real `gh` client started
-while it answered the sweep's four reads against `bje-settings/claude`, on 2026-09-21.
-The acceptance case replays it through the real client, and asserts the sets a person
-swept by hand that day. A test holds the claim "the report matches a hand sweep", not a
-memory of one.
+`tests/plugins/workstreams/fixtures/sweep-capture-2026-11.json` holds every child process the real `gh`
+client started while it answered the sweep's reads against `bje-settings/claude`, on
+2026-11-18. The acceptance case replays it through the real client. It asserts the sets
+that the capture's own `blockedBy` edges give, not a list that a person wrote.
 
 `tests/plugins/workstreams/hook.test.ts` starts `hooks/guard.ts` as its own process, the way `hooks.json` does.
 It sends the payloads Claude Code would really send, against repositories built by

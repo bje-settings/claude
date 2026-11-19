@@ -3,8 +3,8 @@ type: Reference
 description: How `workstreams.ts sweep` reads the tracker, puts each open issue in a tier, and when its report is short or empty.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
-  at: 2026-10-04
+  by: claude-opus-5-5
+  at: 2026-11-19
 ---
 
 # sweep flow
@@ -38,7 +38,7 @@ flowchart TD
     T3 --> N
     N --> O{Did any read fall short?}
     O -->|Yes| P([Report marked INCOMPLETE, or JSON with<br/>the reasons in unavailable, exit 0]):::stop
-    O -->|No| Q([Report: milestones, pull requests,<br/>groups and combined sets, exit 0])
+    O -->|No| Q([Report: milestones, pull requests with their files,<br/>groups and combined sets, exit 0])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
@@ -48,3 +48,7 @@ issue on a milestone outside the sweep gets a tier but appears in no group. An o
 the sweep did not read cannot make an issue unblocked: it stays blocked. `--json` prints the same
 report as one JSON object. With `--issues`, what an issue unlocks is still read against every
 open issue.
+
+Each open pull request carries `files`, the first 100 paths it changes, and `filesComplete`.
+`filesComplete` is false when the pull request changes more files, or when GitHub gave no file
+list. The text report gives only the count, as `files: N` or `files: N (incomplete)`.

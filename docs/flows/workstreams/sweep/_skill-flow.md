@@ -3,8 +3,8 @@ type: Reference
 description: What the /workstreams:sweep skill does, and every way it declines to act.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
-  at: 2026-10-04
+  by: claude-opus-5-5
+  at: 2026-11-19
 ---
 
 # /workstreams:sweep skill flow
@@ -22,20 +22,28 @@ flowchart TD
     E -->|No| F
     E1 --> F{anything unblocked?}
     F -->|No| F1([Stop: name the blocked issues]):::stop
-    F -->|Yes| G[Read every body and every comment<br/>of the unblocked set only]
+    F -->|Yes| W[Walk the unblocked issues: the caller's order<br/>if it gave one, else every one]
+    W --> G[Read the body and every comment<br/>of the next issue the walk reaches]
 
     G --> H[Read the Decisions lists in docs/rfc and docs/adr]
     H --> I{a decision no issue body carries?}
     I -->|Yes| I1[Add it to the round, or record it as a blocker]
     I -->|No| FX
     I1 --> FX{a fix issue whose defect no longer happens?}
-    FX -->|Yes| FX1[Already fixed: do not schedule, comment the commit] --> S
-    FX -->|No| J[Map the files each issue touches]
+    FX -->|Yes| FX1[Already fixed: do not schedule, comment the commit] --> WE
+    FX -->|No| J[Map the files the issue touches]
 
     J --> K{claim cited to a line just read?}
     K -->|No| K1[Grep for it; a remembered claim is not a claim]
     K1 --> J
-    K -->|Yes| L[Classify, size, and estimate the review;<br/>an issue the caller leaves out is deferred, with its round]
+    K -->|Yes| PO{an open pull request edits its files, carries code<br/>it needs, or has an incomplete file list?}
+    PO -->|Yes| PO1[Pass it over: defer it, name the pull request<br/>and the overlap; never stack on it]
+    PO -->|No| KP[Keep it]
+    PO1 --> WE
+    KP --> WE{target size reached,<br/>or the list at its end?}
+    WE -->|No| G
+    WE -->|Yes, none kept| WS([Stop: set size, and how many<br/>passed over for each reason]):::stop
+    WE -->|Yes| L[Classify, size, and estimate the review;<br/>an issue the caller leaves out is deferred, with its round]
 
     L --> M{touch the same file, region, or CI workflow,<br/>apart from a version line or separate README sections?}
     M -->|No| N[Parallel streams]
@@ -53,7 +61,7 @@ flowchart TD
     S --> T{hidden dependencies checked against the code?}
     T -->|No| T1[Check them; the last one stated from bodies alone was wrong]
     T1 --> S
-    T -->|Yes| U([Report: unblocked set, shape,<br/>what unlocks, blocked count])
+    T -->|Yes| U([Report: unblocked set, shape, what unlocks,<br/>blocked count, and each issue passed over])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
