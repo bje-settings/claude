@@ -201,9 +201,9 @@ round just released. A blocked issue carries no reason, and no blocker list. The
 does not read, map, size, or comment on it.
 
 The skill does the reading. It reads every issue body and every comment, for the
-unblocked issues that its walk reaches. It reads the Decisions lists in `docs/rfc/` and `docs/adr/` against
-what has merged. It maps the files each issue touches. It classifies and sizes each
-issue. It chooses between parallel streams, a stack, and one pull request. A shared
+unblocked issues that its walk reaches. It reads the Decisions lists in `docs/rfc/` and
+`docs/adr/` against what has merged. It maps the files each issue touches. It classifies
+and sizes each issue. It chooses between parallel streams, a stack, and one pull request. A shared
 version line, or separate sections of one README, is not a collision. Small issues of one
 plugin and one kind fold into one stream, because each pull request costs a review loop.
 It posts the sequencing comment on every issue in the round. `skills/sweep/` carries the
@@ -211,15 +211,15 @@ rules. `file-map.md` holds the mapping rules a file map must apply.
 
 The command gives the files of each open pull request. An open pull request can edit a
 file an issue would touch, or carry code the issue needs. Then the skill passes the
-issue over. A file list that is not complete is a possible overlap, so it passes the
-issue over too. A passed-over issue is deferred,
-not blocked, and the report names its pull request and the overlap. No layer stacks on a
-pull request the round does not own.
+issue over. A file list that is not complete is a possible overlap, so it passes over
+every issue, whatever its files. A passed-over issue is deferred, not blocked, and the
+report names its pull request and the overlap. No layer stacks on a pull request the
+round does not own.
 
 With an ordered list and a target size from `start`, the sweep walks the list in that
-order. It reads, maps and checks each issue it reaches. It stops at the target or at the
-end of the list. A stop gives the size of the set and how many issues it passed over for
-each reason.
+order. It reads, maps and checks each issue it reaches. It stops when it keeps the target
+number of issues, or at the end of the list. A stop gives the size of the set and how many
+issues it passed over for each reason.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it when a round has no plan
 yet, with a milestone, issue numbers, or no scope. With no scope, `start` also names the
@@ -914,8 +914,9 @@ pnpm test                                        # the whole TypeScript suite, w
 pnpm exec vitest run tests/plugins/workstreams   # this plugin alone
 ```
 
-`tests/plugins/workstreams/fixtures/sweep-capture-2026-11.json` holds every child process the real `gh`
-client started for the sweep's reads against `bje-settings/claude`, on 2026-11-18. The acceptance case replays it through the real client. It asserts the sets
+`tests/plugins/workstreams/fixtures/sweep-capture-2026-11.json` holds every child process
+the real `gh` client started for the sweep's reads against `bje-settings/claude`, on
+2026-11-18. The acceptance case replays it through the real client. It asserts the sets
 that the capture's own `blockedBy` edges give, not a list that a person wrote.
 
 `tests/plugins/workstreams/hook.test.ts` starts `hooks/guard.ts` as its own process, the way `hooks.json` does.

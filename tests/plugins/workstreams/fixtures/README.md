@@ -35,8 +35,3 @@ test writes them by hand. Milestone 7 holds the chain #402, #403, #404: #404 is 
 A tracker change that would alter those sets is a reason to take a new capture under a
 new name, not to edit this one. An edited capture proves nothing about what the API
 answers.
-
-## `sweep-capture.json` (removed)
-
-The first capture, recorded on 2026-09-21. #526 removed it. Its `listOpenPullRequests`
-argv has no `files` connection, so no replay of the current query can match it.
