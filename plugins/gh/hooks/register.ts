@@ -8,7 +8,7 @@
 // permission mode line (#496). A surface that never draws the prompt hint,
 // such as VS Code or mobile, gets the plain text with `$.ui.status`.
 //
-// The counts come from `hooks/hook-io.ts status --json <dir>`, which this module
+// The counts come from `scripts/hook-io.ts status --json <dir>`, which this module
 // runs as a host command with `$.process.run`. So no count logic is here.
 // The `SessionStart` command hook in `hooks.json` keeps only the dependency
 // check (ADR 007, ruling 7).
@@ -23,6 +23,12 @@
 // `src/issue-create.ts`, which vitest measures. A helper that takes `$` is a
 // `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
+//
+// The relative imports below take no suffix. On 2.1.323 and later,
+// `claude plugin validate` type-checks a hooks module with its own options,
+// and ignores the plugin tsconfig. It refuses a `.ts` suffix (TS5097).
+// `tsconfig.hooks.json` resolves as bundler, so no suffix also passes `tsc`
+// (ADR 007, ruling 8). Do not add a suffix.
 import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 import {
   DENY_REASON,
@@ -33,7 +39,7 @@ import {
   typesKey,
   typesOf,
   untypedCreates,
-} from '../src/issue-create.ts'
+} from '../src/issue-create'
 import {
   changesCounts,
   failureText,
@@ -44,7 +50,7 @@ import {
   RUN_TIMEOUT_MS,
   SEGMENT_COLOUR,
   segmentsOf,
-} from '../src/status-pin.ts'
+} from '../src/status-pin'
 
 /** What one session of this module keeps between hooks. */
 interface Pin {
@@ -89,7 +95,7 @@ async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void>
   pin.running = true
   try {
     const ran = await $.process.run(
-      ['node', `${$.plugin.root}/hooks/hook-io.ts`, 'status', '--json', cwd],
+      ['node', `${$.plugin.root}/scripts/hook-io.ts`, 'status', '--json', cwd],
       {
         cwd,
         timeoutMs: RUN_TIMEOUT_MS,

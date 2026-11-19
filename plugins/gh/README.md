@@ -155,7 +155,7 @@ kinds of detail that it removed. The rule is in
 ## Status line
 
 The plugin draws a status row under the prompt. Its hooks module, `hooks/register.ts`, runs
-`hooks/hook-io.ts status --json` for the session's directory, and draws the report as the first
+`scripts/hook-io.ts status --json` for the session's directory, and draws the report as the first
 row of the prompt hint:
 
 ```
@@ -305,12 +305,12 @@ Below the node floor, the hook writes one line with the floor name, then exits 0
 gh: ⚠️ node "v20.19.0" is below the floor: 22.18.0 or newer.
 ```
 
-The hook is `hooks/hook-io.ts`. To see the status lines by hand, run it with `status`. Add
+The hook is `scripts/hook-io.ts`. To see the status lines by hand, run it with `status`. Add
 `--json` to see the report that the module draws:
 
 ```bash
-node <plugin>/hooks/hook-io.ts status /path/to/a/repo-or-folder
-node <plugin>/hooks/hook-io.ts status --json /path/to/a/repo-or-folder
+node <plugin>/scripts/hook-io.ts status /path/to/a/repo-or-folder
+node <plugin>/scripts/hook-io.ts status --json /path/to/a/repo-or-folder
 ```
 
 ## Credentials

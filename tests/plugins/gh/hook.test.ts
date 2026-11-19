@@ -22,7 +22,7 @@ import {
 } from './subcommands/hook-io.test-support.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const HOOK = pluginFile('gh', 'hooks', 'hook-io.ts')
+const HOOK = pluginFile('gh', 'scripts', 'hook-io.ts')
 const HOOKS_JSON = pluginFile('gh', 'hooks', 'hooks.json')
 const FIXTURES = path.join(HERE, 'fixtures')
 
@@ -254,8 +254,15 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
   expect(entries[0]?.hooks.map((hook) => hook.command)).toEqual([
     'if ! command -v node >/dev/null 2>&1; then ' +
       `printf '{"systemMessage":"\\\\ngh: ⚠️ node not found on PATH"}\\n'; exit 0; fi; ` +
-      `node "${expansion}/hooks/hook-io.ts" session-start; exit 0`,
+      `node "${expansion}/scripts/hook-io.ts" session-start; exit 0`,
   ])
+  // The path in the command is the file the other tests run. `; exit 0` hides
+  // a missing file. The literal above catches a changed path. This check
+  // catches a literal and a `hooks.json` that are wrong together (#528).
+  const quoted = /node "([^"]+)"/.exec(entries[0]?.hooks[0]?.command ?? '')?.[1] ?? ''
+  expect(path.join(path.dirname(HOOKS_JSON), '..', quoted.replace(expansion, ''))).toBe(
+    path.normalize(HOOK),
+  )
   // Well under the hook's own 3 s ceiling (`.claude/rules/_design-principles.md`).
   expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([3])
   // The hooks module draws the status row (#488, #496, ADR 007 ruling 7).

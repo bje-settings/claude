@@ -16,7 +16,7 @@
 // arm is dynamic. A command nobody asked for is never loaded. A new
 // command changes no other line in this file.
 //
-// The hook is not here. `hooks/hook-io.ts` is its own entry point, the way
+// The hook is not here. `scripts/hook-io.ts` is its own entry point, the way
 // `hooks/hook-io.py` was. `hooks.json` runs one file this way. The three
 // seams that build the hook stay reachable by hand.
 //

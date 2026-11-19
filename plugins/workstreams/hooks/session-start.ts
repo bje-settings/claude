@@ -2,7 +2,7 @@
 // hook. `hooks.json` runs it directly. It holds no decisions:
 // `src/subcommands/session-start.ts` is the hook, and it takes the
 // process's own edges as arguments. The tests call it there, with no
-// process (`plugins/gh/hooks/hook-io.ts` sets the shape this follows).
+// process (`plugins/gh/scripts/hook-io.ts` sets the shape this follows).
 //
 // **One static import, and it is the floor guard.** Node evaluates every
 // `import` declaration before any statement here runs. A second static

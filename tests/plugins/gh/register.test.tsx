@@ -123,7 +123,7 @@ test('a session start runs the JSON status check, and pins its plain text', asyn
   expect(seen.runs.length).toBe(1)
   const [argv] = seen.runs
   expect(argv?.[0]).toBe('node')
-  expect(String(argv?.[1]).endsWith('/hooks/hook-io.ts')).toBe(true)
+  expect(String(argv?.[1]).endsWith('/scripts/hook-io.ts')).toBe(true)
   expect(argv?.slice(2)).toEqual(['status', '--json', CWD])
   expect(seen.inits).toEqual([{ cwd: CWD, timeoutMs: 15_000 }])
   expect(seen.statuses).toEqual(['[behind] [🤖 2] ⚠️ fetch failed: Invalid username or token'])

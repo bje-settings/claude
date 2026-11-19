@@ -27,7 +27,7 @@ import { createRig, githubRepo } from './subcommands/hook-io.test-support.ts'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURES = path.join(HERE, 'fixtures')
 const BIN = pluginFile('gh', 'scripts', 'gh.ts')
-const HOOK = pluginFile('gh', 'hooks', 'hook-io.ts')
+const HOOK = pluginFile('gh', 'scripts', 'hook-io.ts')
 
 /** Neither stream may show an internal stack trace. With no `error` listener,
  *  node reports a failed write as an uncaught exception. That exception would
