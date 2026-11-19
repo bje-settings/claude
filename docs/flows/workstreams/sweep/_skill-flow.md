@@ -30,17 +30,17 @@ flowchart TD
     I -->|Yes| I1[Add it to the round, or record it as a blocker]
     I -->|No| FX
     I1 --> FX{a fix issue whose defect no longer happens?}
-    FX -->|Yes| FX1[Already fixed: do not schedule, comment the commit] --> WE
+    FX -->|Yes| FX1[Already fixed: do not schedule, comment the commit;<br/>not kept, not counted toward the target] --> WE
     FX -->|No| J[Map the files the issue touches]
 
     J --> K{claim cited to a line just read?}
     K -->|No| K1[Grep for it; a remembered claim is not a claim]
     K1 --> J
-    K -->|Yes| PO{an open pull request edits its files, carries code<br/>it needs, or has an incomplete file list,<br/>whatever the issue's files?}
+    K -->|Yes| PO{an open pull request edits its files, carries code<br/>it needs, or has an incomplete file list:<br/>for that one, whatever the issue's files?}
     PO -->|Yes| PO1[Pass it over: defer it, name the pull request,<br/>the reason and the overlap; never stack on it]
     PO -->|No| KP[Keep it]
     PO1 --> WE
-    KP --> WE{target number kept,<br/>or the list at its end?}
+    KP --> WE{with an ordered list, target number kept;<br/>or the list at its end?}
     WE -->|No| G
     WE -->|Yes, none kept| WS([Stop: set size, and how many<br/>passed over for each reason]):::stop
     WE -->|Yes| L[Classify, size, and estimate the review;<br/>an issue the caller leaves out is deferred, with its round]

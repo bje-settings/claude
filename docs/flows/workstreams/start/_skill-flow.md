@@ -46,7 +46,7 @@ flowchart TD
     B3 -->|a round| E0
     C --> C1{sweep stopped?}
     C1 -->|Yes| C2([Stop: report what sweep returned]):::stop
-    C1 -->|No| D[Invoke /workstreams:question, after a walk<br/>with the issues the sweep kept;<br/>it checks the issues once more before it posts]
+    C1 -->|No| D[Invoke /workstreams:question; after a walk to a target,<br/>or a pass-over, with the issues the sweep kept;<br/>it checks the issues once more before it posts]
     D --> D1{plan approved in plan mode?}
     D1 -->|No| D2([Stop: no approved plan]):::stop
     D1 -->|Yes| E

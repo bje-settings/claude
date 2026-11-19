@@ -109,8 +109,9 @@ Derive it on each call. Write nothing to disk.
    the target size. With no scope, also give it the issues of each round in `rounds` and
    in `others`, to leave out. Together they are the rounds that `rounds --all` names. If it
    stops, stop.
-   Then invoke `/workstreams:question` with the same scope, or after a walk, with the
-   issues the sweep kept. Its plan mode is the approval.
+   Then invoke `/workstreams:question` with the same scope. After a walk to a target, or
+   when the sweep passed an issue over, give it the issues the sweep kept instead. Its plan
+   mode is the approval.
    With no approved plan, stop.
 2. `pr <n>`: that pull request is the whole round. Read its state first. `merged` or
    `closed` is a stop. Report it, and dispatch no round. At `review-1` with

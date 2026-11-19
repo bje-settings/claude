@@ -27,6 +27,8 @@ size (step 1, the walk).
    If `pullRequests` is not empty, name each one before you go on. A round planned around
    a branch someone else is about to merge collides on files the sweep cannot see.
 
+   If nothing is unblocked, stop. Name the blocked issues (`blocked`) and how many there are.
+
    **Pass over.** Each pull request carries `files`, the paths it changes, and
    `filesComplete`. After step 3 maps an issue's files, pass the issue over for one of
    three reasons:
@@ -43,20 +45,20 @@ size (step 1, the walk).
 
    **The walk.** The caller can give an ordered list of issues and a target size. Then take
    the unblocked issues in the caller's order, not in the order of the report. Do steps 2
-   and 3 for each issue, then keep it or pass it over. Stop when you keep the target number
-   of issues, 3 to 5 if the caller gives none, or at the end of the list. With no ordered
-   list, the walk reaches every unblocked issue. If the walk keeps none, stop and say so.
-   Give the size of the set and how many issues you passed over for each reason.
-
-   If nothing is unblocked, stop. Name the blocked issues (`blocked`) and how many there are.
+   and 3 for each issue, then keep it or pass it over. An issue that is already fixed is
+   neither, and does not count toward the target. Stop when you keep the target number of
+   issues, 3 to 5 if the caller gives none, or at the end of the list. With no ordered
+   list, there is no target: the walk reaches every unblocked issue. If the walk keeps
+   none, stop and say so. Give the size of the set, and how many issues you passed over for
+   each reason. The set is the caller's ordered list, or else the unblocked set.
 
 2. Read, do not remember. For every unblocked issue that the walk reaches, read the full
    body **and every comment**. A findings comment is often the specification; the body is
    often out of date. Leave the blocked set alone: nothing there is read, mapped, sized, or
    commented on.
 
-   Then read the decision records for the scope: every file under `docs/rfc/` and
-   `docs/adr/`, and the Decisions lists in particular. [file-map.md](file-map.md) has the
+   Read the decision records for the scope once, before the walk's first issue: every file
+   under `docs/rfc/` and `docs/adr/`, and the Decisions lists in particular. [file-map.md](file-map.md) has the
    check against what has merged.
 
    Every factual claim you are about to write down gets cited to a line you have just read.
