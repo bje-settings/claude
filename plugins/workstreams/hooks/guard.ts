@@ -12,7 +12,7 @@
 // guard exists to refuse. This file uses `meetsNodeFloor`, not
 // `assertNodeFloor`: a hook that writes to stderr writes into the session,
 // so under the floor this exits 0 in silence, rather than explain itself
-// (RFC 001 "Hooks", ADR 001, `plugins/gh/hooks/hook-io.ts`). The other half
+// (RFC 001 "Hooks", ADR 001, `plugins/gh/scripts/hook-io.ts`). The other half
 // of that guarantee is `hooks.json`'s `command -v node ... ; exit 0`, for a
 // machine with no node at all, and for a hooks directory this file was
 // never installed into.
