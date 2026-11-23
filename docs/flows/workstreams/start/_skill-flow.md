@@ -3,8 +3,8 @@ type: Reference
 description: What the /workstreams:start skill does on each call and each wake, and every way it stops.
 stale_after: 2027-03-27
 generated:
-  by: claude-opus
-  at: 2026-11-16
+  by: claude-opus-5-5
+  at: 2026-11-19
 ---
 
 # /workstreams:start skill flow
@@ -14,10 +14,11 @@ What `/workstreams:start` does to a round or to one pull request, and every way 
 ```mermaid
 flowchart TD
     A0[Read the argument: milestone, issues, pr, free words, or none;<br/>judge other words and a bare number that names no milestone;<br/>ask if two readings stay] --> A
-    A{argument?} -->|free words| FW[Resolve them to an issue list with gh issue list:<br/>key words, label or issue type; show the set]
+    A{argument?} -->|free words| FW[Resolve them to the full issue list with gh issue list:<br/>key words, label or issue type]
     FW --> FW1{set empty?}
     FW1 -->|Yes| FW2([Stop: no issue matches]):::stop
-    FW1 -->|No| B
+    FW1 -->|No| FW3[Rank the set by the person's criterion; show it.<br/>The sweep walks the ordered list to the target size, 3 to 5 by default]
+    FW3 --> B
     A -->|pr n| P1[That pull request is the whole round]
     P1 --> P0{its state: merged or closed?}
     P0 -->|Yes| P0a([Stop: report the state]):::stop
@@ -33,7 +34,7 @@ flowchart TD
     B0 -->|Yes| B0a([Stop: name it]):::stop
     B0 -->|No| B1{how many rounds?}
     B1 -->|None, with a scope that only others holds| B1d([Stop: name each round in others,<br/>its plan line and author]):::stop
-    B1 -->|None| C[Invoke /workstreams:sweep with the scope;<br/>with no scope, name each round in others,<br/>and leave out the issues of each round in rounds and others]
+    B1 -->|None| C[Invoke /workstreams:sweep with the scope;<br/>for free words, the ordered list and the target size;<br/>with no scope, name each round in others,<br/>and leave out the issues of each round in rounds and others]
     B1 -->|One or more, with a scope that others also holds| B1e([Stop: name each round,<br/>its plan line and author]):::stop
     B1 -->|Two or more, with a scope| B1a([Stop: name each round and its issues]):::stop
     B1 -->|One, and an issue in scope in no round| B1b([Stop: name both parts]):::stop
@@ -45,7 +46,7 @@ flowchart TD
     B3 -->|a round| E0
     C --> C1{sweep stopped?}
     C1 -->|Yes| C2([Stop: report what sweep returned]):::stop
-    C1 -->|No| D[Invoke /workstreams:question;<br/>it checks the issues once more before it posts]
+    C1 -->|No| D[Invoke /workstreams:question; after a walk to a target,<br/>or a pass-over, with the issues the sweep kept;<br/>it checks the issues once more before it posts]
     D --> D1{plan approved in plan mode?}
     D1 -->|No| D2([Stop: no approved plan]):::stop
     D1 -->|Yes| E
